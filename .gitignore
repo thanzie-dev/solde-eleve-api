@@ -1,0 +1,19 @@
+# Environnement virtuel
+env/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Fichiers Excel temporaires
+~$*.xlsx
+
+# Fichiers logs
+*.log
+import_log.txt
+erreurs_import.xlsx
+
+# Base de données locale (optionnel)
+*.db
