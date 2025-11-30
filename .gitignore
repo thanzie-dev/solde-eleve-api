@@ -1,4 +1,4 @@
-# --- Environnement virtuel ---
+# --- Environnements virtuels ---
 env/
 venv/
 ENV/
@@ -10,7 +10,8 @@ __pycache__/
 *.pyo
 *.pyd
 
-# --- Fichiers Excel temporaires ---
+# --- Fichiers Excel ---
+*.xlsx
 ~$*.xlsx
 *.xlsx~
 
@@ -32,15 +33,13 @@ erreurs_import/
 # --- Fichiers temporaires ---
 *.tmp
 *.temp
-exit
-python
 
 # --- Images inutiles (si API seulement) ---
 logo_cs_nst.png
 
-# --- Base de données (si pas nécessaire) ---
+# --- Base de données (optionnel) ---
 # thz.db
-# (Garde thz.db si tu veux la déployer. Sinon décommente cette ligne.)
+# (Décommente si tu veux ignorer la DB)
 
 # --- Fichiers YAML incorrects ---
 render.yaml.txt
@@ -48,4 +47,3 @@ render.yaml.txt
 # --- Système ---
 .DS_Store
 Thumbs.db
-
