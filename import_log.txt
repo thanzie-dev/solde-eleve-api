@@ -1,6 +1,0 @@
-[2025-11-24 09:35:11.451397] Début de l'import Excel
-[2025-11-24 09:35:11.451397] Fichier Excel : THZBD2526GA.xlsx
-[2025-11-24 09:35:12.160153] Colonnes après normalisation : ['Num', 'Matricule', 'Nom', 'NumRecu', 'Sexe', 'Classe', 'Categorie', 'Mois', 'FIP', 'FF', 'Obs', 'Jour', 'DatePaiement', 'AnneeScolaire', 'Section', 'Telephone', 'Email']
-[2025-11-24 09:35:12.169949] Lignes après suppression des lignes totalement vides : 0 (supprimé 1011)
-[2025-11-24 09:35:12.183075] ✔ Fichier Excel valide — importation autorisée.
-[2025-11-24 09:35:12.844269] ✅ Import terminé : 0 insertions, 0 mises à jour.
