@@ -1,19 +1,51 @@
-# Environnement virtuel
+# --- Environnement virtuel ---
 env/
 venv/
+ENV/
+*.env
 
-# Python cache
+# --- Fichiers Python ---
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 
-# Fichiers Excel temporaires
+# --- Fichiers Excel temporaires ---
 ~$*.xlsx
+*.xlsx~
 
-# Fichiers logs
+# --- Logs et fichiers générés ---
 *.log
 import_log.txt
 erreurs_import.xlsx
+rapport_import.txt
 
-# Base de données locale (optionnel)
-*.db
+# --- Rapports ---
+rapport_import/
+erreurs_import/
+
+# --- Archives et paquets ---
+*.tar.gz
+*.zip
+*.rar
+
+# --- Fichiers temporaires ---
+*.tmp
+*.temp
+exit
+python
+
+# --- Images inutiles (si API seulement) ---
+logo_cs_nst.png
+
+# --- Base de données (si pas nécessaire) ---
+# thz.db
+# (Garde thz.db si tu veux la déployer. Sinon décommente cette ligne.)
+
+# --- Fichiers YAML incorrects ---
+render.yaml.txt
+
+# --- Système ---
+.DS_Store
+Thumbs.db
+
