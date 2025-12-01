@@ -5,7 +5,6 @@ services:
     region: oregon
     plan: free
 
-    pythonVersion: 3.12
 
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn server_flask:app --bind 0.0.0.0:$PORT"
