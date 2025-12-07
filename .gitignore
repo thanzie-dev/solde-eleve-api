@@ -4,13 +4,13 @@ venv/
 ENV/
 *.env
 
-# --- Fichiers Python ---
+# -
+-- Fichiers Python ---
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# --- Fichiers Excel ---
 *.xlsx
 ~$*.xlsx
 *.xlsx~
@@ -24,6 +24,7 @@ rapport_import.txt
 # --- Rapports ---
 rapport_import/
 erreurs_import/
+
 
 # --- Archives et paquets ---
 *.tar.gz
@@ -48,3 +49,5 @@ render.yaml.txt
 .DS_Store
 Thumbs.db
 thz.db
+rapport_import.pdf
+
