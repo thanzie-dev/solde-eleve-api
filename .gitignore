@@ -11,10 +11,6 @@ __pycache__/
 *.pyo
 *.pyd
 
-*.xlsx
-~$*.xlsx
-*.xlsx~
-
 # --- Logs et fichiers générés ---
 *.log
 import_log.txt
