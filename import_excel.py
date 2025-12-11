@@ -472,38 +472,57 @@ def generer_rapport_pdf(stats: dict, path: str):
 
 
 # =============================
-#  6. PROGRAMME PRINCIPAL
+#  6. FONCTION D'IMPORT GLOBALE (POUR FLASK + CLI)
 # =============================
 
-def main():
+def run_import():
+    """
+    Fonction principale réutilisable :
+    - utilisée par Flask (import_excel.run_import())
+    - utilisée par le main() ci-dessous (mode terminal)
+    Lève les exceptions en cas d'erreur.
+    """
     debut = datetime.now()
     log("=== Début de l'import Excel ===")
 
     stats = {}
 
+    # 1) Chargement Excel
+    df, s1 = charger_excel(EXCEL_FILE)
+    stats.update(s1)
+
+    # 2) Nettoyage / validation
+    df, s2 = preparer_dataframe(df)
+    stats.update(s2)
+
+    # 3) Création / mise à jour DB
+    conn = sqlite3.connect(DB_PATH)
+    creer_schema(conn)
+    s3 = inserer_donnees(df, conn)
+    conn.close()
+    stats.update(s3)
+
+    # 4) Durée
+    stats["duree"] = str(datetime.now() - debut)
+
+    # 5) Rapports
+    generer_rapport_txt(stats, RAPPORT_TXT)
+    generer_rapport_pdf(stats, RAPPORT_PDF)
+
+    log("✅ Import terminé avec succès.")
+    log(f"Rapport TXT : {os.path.abspath(RAPPORT_TXT)}")
+    log(f"Rapport PDF : {os.path.abspath(RAPPORT_PDF)}")
+
+    return stats
+
+
+# =============================
+#  7. PROGRAMME PRINCIPAL (CLI)
+# =============================
+
+def main():
     try:
-        df, s1 = charger_excel(EXCEL_FILE)
-        stats.update(s1)
-
-        df, s2 = preparer_dataframe(df)
-        stats.update(s2)
-
-        conn = sqlite3.connect(DB_PATH)
-        creer_schema(conn)
-        s3 = inserer_donnees(df, conn)
-        conn.close()
-        stats.update(s3)
-
-        stats["duree"] = str(datetime.now() - debut)
-
-        # Rapports
-        generer_rapport_txt(stats, RAPPORT_TXT)
-        generer_rapport_pdf(stats, RAPPORT_PDF)
-
-        log("✅ Import terminé avec succès.")
-        log(f"Rapport TXT : {os.path.abspath(RAPPORT_TXT)}")
-        log(f"Rapport PDF : {os.path.abspath(RAPPORT_PDF)}")
-
+        run_import()
     except Exception as e:
         log("❌ Import interrompu.")
         print(e)

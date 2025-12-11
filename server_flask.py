@@ -3,7 +3,8 @@
 # Aligné avec la base PRO 7.0 (import_excel.py)
 # ===============================================================
 
-from flask import Flask, jsonify, send_file
+from flask import Flask, jsonify, send_file, request, render_template_string, redirect, url_for, session
+import import_excel
 import sqlite3
 import pandas as pd
 import re
@@ -12,14 +13,32 @@ from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
+#la clé secrète + le mot de passe admin :
 app = Flask(__name__)
+app.secret_key = "BJ2KEL24"  # clé pour sécuriser la session (tu peux la changer)
 DB_PATH = "thz.db"
+
+ADMIN_PASSWORD = "1971celeste"  # Ton mot de passe admin
+
 
 # Mois officiels
 MOIS_SCOLAIRE = [
     "Sept", "Oct", "Nov", "Dec", "Janv", "Fevr",
-    "Mars", "Avr", "Mai", "Juin", "Juil"
+    "Mars", "Avr", "Mai", "Juin"
 ]
+
+#décorateur pour protéger les routes admin
+from functools import wraps
+
+def login_required(f):
+    """Décorateur pour protéger les routes admin."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("admin_logged"):
+            return redirect(url_for("admin_login"))
+        return f(*args, **kwargs)
+    return decorated_function
+
 
 # ===============================================================
 # 🔵 1. Détermination FIP mensuel selon classe
@@ -35,10 +54,10 @@ def get_fip_par_classe(classe):
     groupe_45 = ["7EB", "8EB", "1HP", "1LIT", "1SC",
                  "2HP", "2LIT", "2SC",
                  "3HP", "3LIT", "3SC"]
-    groupe_55 = ["1CG", "1MC", "1TCC", "1EL", "1ELECTRO", "1CONST",
-                 "2CG", "2MC", "2TCC", "2EL",
-                 "3CG", "3MC", "3TCC", "3EL"]
-    groupe_80 = ["4CG", "4MC", "4TCC", "4EL"]
+    groupe_55 = ["1CG", "1MG", "1TCC", "1EL", "1ELECTRO", "1CONST",
+                 "2CG", "2MG", "2TCC", "2EL",
+                 "3CG", "3MG", "3TCC", "3EL"]
+    groupe_80 = ["4CG", "4MG", "4TCC", "4EL","4HP","4SC","4LIT"]
 
     if c in groupe_40:
         return 40
@@ -70,7 +89,7 @@ def canonical_month(m_raw):
         "janv": "Janv", "jan": "Janv",
         "fev": "Fevr", "fév": "Fevr", "févr": "Fevr",
         "mars": "Mars", "avr": "Avr", "mai": "Mai",
-        "juin": "Juin", "juil": "Juil",
+        "juin": "Juin",
     }
 
     for k, v in mapping.items():
@@ -481,7 +500,123 @@ def api_rapport_classe(classe):
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+        
+        
+  # ===============================================================
+# 🔵 11 bis. Authentification ADMIN
+# ===============================================================
 
+LOGIN_FORM_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Connexion Admin — Solde Élève</title>
+</head>
+<body style="font-family:Arial; margin:40px;">
+    <h2>🔐 Connexion Administrateur</h2>
+
+    {% if error %}
+        <p style="color:red;">{{ error }}</p>
+    {% endif %}
+
+    <form method="POST">
+        <p>Mot de passe :</p>
+        <input type="password" name="password" required>
+        <br><br>
+        <button type="submit" style="padding:8px 16px;">Se connecter</button>
+    </form>
+
+    <p style="margin-top:20px;">
+        <a href="/">Retour à l'API</a>
+    </p>
+</body>
+</html>
+"""
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    """Page de login admin."""
+    error = None
+    if request.method == "POST":
+        pwd = request.form.get("password")
+        if pwd == ADMIN_PASSWORD:
+            session["admin_logged"] = True
+            return redirect(url_for("admin_upload_form"))
+        else:
+            error = "Mot de passe incorrect."
+
+    return render_template_string(LOGIN_FORM_HTML, error=error)
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    """Déconnexion de l'admin."""
+    session.pop("admin_logged", None)
+    return redirect(url_for("admin_login"))
+      
+
+# ===============================================================
+# 🔵 12. Interface d'import Excel
+# ===============================================================
+
+UPLOAD_FORM_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Import Excel — Solde Élève</title>
+</head>
+<body style="font-family:Arial; margin:40px;">
+    <h2>📊 Importation du fichier Excel</h2>
+
+    <form action="/admin/upload_excel" method="POST" enctype="multipart/form-data">
+        <p><b>Sélectionnez le fichier Excel :</b></p>
+        <input type="file" name="excel_file" accept=".xlsx" required>
+        <br><br>
+        <button type="submit" style="padding:10px 20px;">Importer</button>
+    </form>
+
+    <p style="margin-top:30px;">
+        <a href="/">Retour API</a>
+    </p>
+</body>
+</html>
+"""
+
+@app.route("/admin/upload_excel", methods=["GET"])
+@login_required
+def admin_upload_form():
+    """Affiche le formulaire HTML."""
+    return render_template_string(UPLOAD_FORM_HTML)
+
+
+@app.route("/admin/upload_excel", methods=["POST"])
+@login_required
+def admin_upload_excel():
+    """Reçoit un fichier Excel, le sauvegarde et relance l'import."""
+    if "excel_file" not in request.files:
+        return jsonify({"error": "Aucun fichier reçu"}), 400
+    
+    f = request.files["excel_file"]
+
+    if f.filename == "":
+        return jsonify({"error": "Nom de fichier vide"}), 400
+
+    # On remplace l'ancien Excel par le nouveau
+    excel_path = "THZBD2526GA.xlsx"
+    f.save(excel_path)
+
+    try:
+        # Exécution PRO : reconstruit thz.db
+        stats = import_excel.run_import()
+
+        return jsonify({
+            "status": "ok",
+            "message": "Importation réussie",
+            "stats": stats
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # ===============================================================
 # 🔵 11. Lancement local
