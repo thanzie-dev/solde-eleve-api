@@ -1828,7 +1828,6 @@ hr {{
 #============================================================
 #  JOURNAL 
 #============================================================
-
 JOURNAL_HTML = """
 <!DOCTYPE html>
 <html lang="fr">
@@ -1912,14 +1911,24 @@ a {
 @login_required
 def admin_journal():
     return render_template_string(JOURNAL_HTML)
-    
+
 
 @app.route("/admin/journal_result")
 @login_required
 def admin_journal_result():
-    date = request.args.get("date", "")
-    if not date:
+    date_iso = request.args.get("date", "")
+    if not date_iso:
         return "Date manquante", 400
+
+    # date_iso = YYYY-MM-DD
+    try:
+        d = datetime.strptime(date_iso, "%Y-%m-%d")
+    except ValueError:
+        return "Format de date invalide", 400
+
+    # Générer plusieurs formats possibles
+    date_fr = d.strftime("%d/%m/%Y")      # 24/12/2025
+    date_iso_simple = d.strftime("%Y-%m-%d")  # 2025-12-24
 
     conn = sqlite3.connect(DB_PATH)
 
@@ -1931,16 +1940,27 @@ def admin_journal_result():
             e.section,
             p.mois,
             p.fip,
-            p.numrecu
+            p.numrecu,
+            p.DatePaiement
         FROM paiements p
         JOIN eleves e ON p.eleve_id = e.id
-        WHERE DATE(p.DatePaiement) = DATE(?)
-    """, conn, params=(date,))
+        WHERE
+            p.DatePaiement LIKE ?
+            OR p.DatePaiement LIKE ?
+            OR p.DatePaiement LIKE ?
+    """, conn, params=(
+        f"%{date_iso_simple}%",
+        f"%{date_fr}%",
+        f"%{date_iso_simple.replace('-', '/') }%"
+    ))
 
     conn.close()
 
     if df.empty:
-        return f"<h3>Aucun paiement trouvé pour le {date}</h3><a href='/admin/journal'>← Retour</a>"
+        return f"""
+        <h3>Aucun paiement trouvé pour le {date_fr}</h3>
+        <a href='/admin/journal'>← Retour</a>
+        """
 
     total_jour = df["fip"].sum()
 
@@ -1958,71 +1978,95 @@ def admin_journal_result():
         </tr>
         """
 
-    return f"""
+    html = f"""
     <html>
     <head>
     <style>
-    body {{ font-family:"Bookman Old Style"; background:#f4f8ff; }}
-    table {{
-        width:90%;
-        margin:40px auto;
-        border-collapse: collapse;
-        background:white;
-        box-shadow:0 6px 20px rgba(0,0,0,0.15);
-    }}
-    th, td {{ border:1px solid #ccc; padding:10px; text-align:center; }}
-    th {{ background:#1976d2; color:white; }}
-    tfoot td {{ font-weight:bold; background:#e3f2fd; }}
+        body {{ font-family: "Bookman Old Style"; background:#f4f8ff; }}
+        table {{
+            width:90%;
+            margin:40px auto;
+            border-collapse: collapse;
+            background:white;
+            box-shadow:0 6px 20px rgba(0,0,0,0.15);
+        }}
+        th, td {{
+            border:1px solid #ccc;
+            padding:10px;
+            text-align:center;
+        }}
+        th {{
+            background:#1976d2;
+            color:white;
+        }}
+        tfoot td {{
+            font-weight:bold;
+            background:#e3f2fd;
+        }}
     </style>
     </head>
-
     <body>
+
     <h2 style="text-align:center;color:#0d47a1;">
-        Journal des paiements du {date}
+        Journal des paiements du {date_fr}
     </h2>
 
     <table>
-        <tr>
-            <th>Matricule</th>
-            <th>Nom</th>
-            <th>Classe</th>
-            <th>Section</th>
-            <th>Mois</th>
-            <th>Montant</th>
-            <th>Reçu</th>
-        </tr>
-
-        {rows}
-
+        <thead>
+            <tr>
+                <th>Matricule</th>
+                <th>Nom</th>
+                <th>Classe</th>
+                <th>Section</th>
+                <th>Mois</th>
+                <th>Montant</th>
+                <th>Reçu</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows}
+        </tbody>
         <tfoot>
-        <tr>
-            <td colspan="5">TOTAL JOURNALIER</td>
-            <td colspan="2">{total_jour}</td>
-        </tr>
+            <tr>
+                <td colspan="5">TOTAL JOURNÉE</td>
+                <td colspan="2">{total_jour}</td>
+            </tr>
         </tfoot>
     </table>
 
     <div style="text-align:center;">
-        <a href="/api/journal_pdf/{date}">📄 Télécharger PDF</a> |
+        <a href="/api/journal_pdf/{date_iso}">📄 Télécharger PDF</a> |
         <a href="/admin/journal">← Retour</a>
     </div>
+
     </body>
     </html>
     """
 
-@app.route("/api/journal_pdf/<date>")
+    return html
+
+
+@app.route("/api/journal_pdf/<date_iso>")
 @login_required
-def api_journal_pdf(date):
+def api_journal_pdf(date_iso):
+    d = datetime.strptime(date_iso, "%Y-%m-%d")
+    date_fr = d.strftime("%d/%m/%Y")
+
     conn = sqlite3.connect(DB_PATH)
 
     df = pd.read_sql_query("""
         SELECT 
             e.matricule, e.nom, e.classe, e.section,
-            p.mois, p.fip, p.numrecu
+            p.mois, p.fip, p.numrecu, p.DatePaiement
         FROM paiements p
         JOIN eleves e ON p.eleve_id = e.id
-        WHERE DATE(p.DatePaiement) = DATE(?)
-    """, conn, params=(date,))
+        WHERE
+            p.DatePaiement LIKE ?
+            OR p.DatePaiement LIKE ?
+    """, conn, params=(
+        f"%{date_iso}%",
+        f"%{date_fr}%"
+    ))
 
     conn.close()
 
@@ -2031,16 +2075,19 @@ def api_journal_pdf(date):
 
     total_jour = df["fip"].sum()
 
-    file_path = f"journal_{date}.pdf"
+    file_path = f"journal_{date_iso}.pdf"
     c = canvas.Canvas(file_path, pagesize=A4)
     c.setFont("Helvetica", 9)
 
     y = 800
-    c.drawString(50, y, f"JOURNAL DES PAIEMENTS - {date}")
+    c.drawString(50, y, f"JOURNAL DES PAIEMENTS - {date_fr}")
     y -= 25
 
     for _, r in df.iterrows():
-        c.drawString(50, y, f"{r['matricule']} | {r['nom']} | {r['classe']} | {r['mois']} | {r['fip']}")
+        c.drawString(
+            50, y,
+            f"{r['matricule']} | {r['nom']} | {r['classe']} | {r['mois']} | {r['fip']}"
+        )
         y -= 14
         if y < 60:
             c.showPage()
@@ -2052,6 +2099,8 @@ def api_journal_pdf(date):
 
     c.save()
     return send_file(file_path, as_attachment=True)
+
+
 
 
 # ===============================================================
