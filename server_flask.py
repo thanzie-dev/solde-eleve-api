@@ -1,6 +1,5 @@
 # ===============================================================
-# server_flask.py — Version PRO 4.0
-# Aligné avec la base PRO 7.0 (import_excel.py)
+# server_flask.py — Version PRO 4.1 (mise à jour avec FIP mensuel)
 # ===============================================================
 
 from flask import Flask, jsonify, send_file, request, render_template_string, redirect, url_for, session
@@ -12,14 +11,15 @@ import os
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from functools import wraps
 
-#la clé secrète + le mot de passe admin :
+# ===============================================================
+# 🔹 Configuration générale
+# ===============================================================
 app = Flask(__name__)
-app.secret_key = "BJ2KEL24"  # clé pour sécuriser la session (tu peux la changer)
+app.secret_key = "BJ2KEL24"  # clé pour sécuriser la session
 DB_PATH = "thz.db"
-
-ADMIN_PASSWORD = "1971celeste"  # Ton mot de passe admin
-
+ADMIN_PASSWORD = "1971celeste"  # mot de passe admin
 
 # Mois officiels
 MOIS_SCOLAIRE = [
@@ -27,11 +27,8 @@ MOIS_SCOLAIRE = [
     "Mars", "Avr", "Mai", "Juin"
 ]
 
-#décorateur pour protéger les routes admin
-from functools import wraps
-
+# Décorateur pour protéger les routes admin
 def login_required(f):
-    """Décorateur pour protéger les routes admin."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get("admin_logged"):
@@ -39,17 +36,13 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-
 # ===============================================================
 # 🔵 1. Détermination FIP mensuel selon classe
 # ===============================================================
-
 def get_fip_par_classe(classe):
     if not classe:
         return 0
-
     c = str(classe).strip().replace("°", "").upper()
-
     groupe_40 = ["1M", "2M", "3M", "1P", "2P", "3P", "4P", "5P", "6P"]
     groupe_45 = ["7EB", "8EB", "1HP", "1LIT", "1SC",
                  "2HP", "2LIT", "2SC",
@@ -67,157 +60,163 @@ def get_fip_par_classe(classe):
         return 55
     elif c in groupe_80:
         return 80
-
     return 0
 
-
 # ===============================================================
-# 🔵 2. Normalisation des mois (Ac., Sld., etc.)
+# 🔵 2. Normalisation des mois
 # ===============================================================
-
 def canonical_month(m_raw):
     if pd.isna(m_raw):
         return None
-
     s = str(m_raw).strip().lower()
-
-    # Retire Ac., Sld., Ac-, Ac/, etc.
     s = re.sub(r'^(ac|sld)[\.\-\s/]*', '', s)
-
     mapping = {
         "sept": "Sept", "oct": "Oct", "nov": "Nov", "dec": "Dec",
-        "janv": "Janv", "jan": "Janv",
+        "janv": "Janv", "janv": "Janv",
         "fev": "Fevr", "fév": "Fevr", "févr": "Fevr",
         "mars": "Mars", "avr": "Avr", "mai": "Mai",
         "juin": "Juin",
     }
-
     for k, v in mapping.items():
         if k in s:
             return v
-
     return None
 
-
 # ===============================================================
-# 🔵 3. Fonction utilitaire : calcul FIP pour un élève
+# 🔵 3. Calcul FIP pour un élève
 # ===============================================================
-
 def calcul_fip_eleve(matricule: str, conn: sqlite3.Connection):
-    """
-    Retourne un dict avec toutes les infos FIP d'un élève :
-    - nom, classe, section, categorie, téléphone
-    - fip_mensuel, fip_total, total_attendu_fip, solde_fip
-    - mois_payes, mois_non_payes
-    """
     eleve_df = pd.read_sql_query(
         "SELECT * FROM eleves WHERE LOWER(matricule)=LOWER(?)",
         conn, params=(matricule,)
     )
-
     if eleve_df.empty:
-        return None  # élève introuvable
-
+        return None
     eleve = eleve_df.iloc[0].to_dict()
-
-    # On accepte "nom" ou "nom_postnom" selon la colonne que tu as
     nom = eleve.get("nom") or eleve.get("nom_postnom") or "Non renseigné"
     classe = eleve.get("classe", "")
     fip_mensuel = get_fip_par_classe(classe)
     total_attendu = fip_mensuel * len(MOIS_SCOLAIRE)
 
-    # Paiements
     pay_df = pd.read_sql_query("""
         SELECT mois, fip, numrecu
         FROM paiements p
         JOIN eleves e ON p.eleve_id = e.id
         WHERE LOWER(e.matricule)=LOWER(?)
     """, conn, params=(matricule,))
-
     if pay_df.empty:
         return {
-            "nom": nom,
-            "matricule": matricule,
-            "sexe": eleve.get("sexe", ""),
-            "classe": classe,
-            "section": eleve.get("section", ""),
-            "categorie": eleve.get("categorie", ""),
-            "telephone": eleve.get("telephone", ""),
-            "fip_mensuel": fip_mensuel,
-            "fip_total": 0.0,
-            "total_attendu_fip": total_attendu,
-            "solde_fip": total_attendu,
-            "mois_payes": [],
-            "mois_non_payes": MOIS_SCOLAIRE,
+            "nom": nom, "matricule": matricule, "sexe": eleve.get("sexe", ""),
+            "classe": classe, "section": eleve.get("section", ""), "categorie": eleve.get("categorie", ""),
+            "telephone": eleve.get("telephone", ""), "fip_mensuel": fip_mensuel,
+            "fip_total": 0.0, "total_attendu_fip": total_attendu, "solde_fip": total_attendu,
+            "mois_payes": [], "mois_non_payes": MOIS_SCOLAIRE
         }
-
-    # Anti-doublon numrecu
     pay_df = pay_df.drop_duplicates(subset=["numrecu"], keep="first")
-
     pay_df["mois_norm"] = pay_df["mois"].apply(canonical_month)
     pay_df["fip"] = pd.to_numeric(pay_df["fip"], errors="coerce").fillna(0)
-
-    pay_df = pay_df[
-        pay_df["mois_norm"].notna() &
-        (pay_df["fip"] > 0)
-    ]
-
+    pay_df = pay_df[pay_df["mois_norm"].notna() & (pay_df["fip"] > 0)]
     pay_group = pay_df.groupby("mois_norm")["fip"].sum().to_dict()
 
     mois_payes = []
     mois_non_payes = []
     total_paye = 0.0
-
     for m in MOIS_SCOLAIRE:
         montant = float(pay_group.get(m, 0))
-
         if montant == 0:
             mois_non_payes.append(m)
             continue
-
         total_paye += montant
-
         if montant < fip_mensuel:
             mois_payes.append(f"Ac.{m}")
         else:
             mois_payes.append(m)
-
     solde_fip = total_attendu - total_paye
 
     return {
-        "nom": nom,
-        "matricule": matricule,
-        "sexe": eleve.get("sexe", ""),
-        "classe": classe,
-        "section": eleve.get("section", ""),
-        "categorie": eleve.get("categorie", ""),
-        "telephone": eleve.get("telephone", ""),
-        "fip_mensuel": fip_mensuel,
-        "fip_total": round(total_paye, 2),
-        "total_attendu_fip": total_attendu,
-        "solde_fip": round(solde_fip, 2),
-        "mois_payes": mois_payes,
-        "mois_non_payes": mois_non_payes,
+        "nom": nom, "matricule": matricule, "sexe": eleve.get("sexe", ""),
+        "classe": classe, "section": eleve.get("section", ""), "categorie": eleve.get("categorie", ""),
+        "telephone": eleve.get("telephone", ""), "fip_mensuel": fip_mensuel,
+        "fip_total": round(total_paye, 2), "total_attendu_fip": total_attendu, "solde_fip": round(solde_fip, 2),
+        "mois_payes": mois_payes, "mois_non_payes": mois_non_payes
+    }
+
+# ===============================================================
+# 🔵 3bis. Fonctions utilitaires pour FIP par section et par mois
+# ===============================================================
+def calcul_fip_cumul_section(section: str, mois: str = None):
+    mois_cible = canonical_month(mois) if mois else None
+    conn = sqlite3.connect(DB_PATH)
+    query = """
+        SELECT p.mois, SUM(p.fip) AS total_fip
+        FROM paiements p
+        JOIN eleves e ON p.eleve_id = e.id
+        WHERE LOWER(e.section)=LOWER(?)
+        GROUP BY p.mois
+    """
+    df = pd.read_sql_query(query, conn, params=(section,))
+    conn.close()
+    df["mois_norm"] = df["mois"].apply(canonical_month)
+    df = df[df["mois_norm"].notna()]
+    if mois_cible:
+        mois_index = MOIS_SCOLAIRE.index(mois_cible) + 1
+        df = df[df["mois_norm"].apply(lambda m: MOIS_SCOLAIRE.index(m) < mois_index)]
+    total_paye = df["total_fip"].sum()
+    mois_cumul = df["mois_norm"].unique().tolist()
+    return {"section": section, "mois_cumul": mois_cumul, "total_paye": round(float(total_paye), 2)}
+
+def calcul_fip_total_par_mois(mois: str):
+    mois_cible = canonical_month(mois)
+    if not mois_cible:
+        raise ValueError(f"Mois invalide : {mois}")
+
+    conn = sqlite3.connect(DB_PATH)
+
+    query = """
+        SELECT e.section, p.mois, p.fip
+        FROM paiements p
+        JOIN eleves e ON p.eleve_id = e.id
+    """
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+
+    # Normalisation des mois
+    df["mois_norm"] = df["mois"].apply(canonical_month)
+    df["fip"] = pd.to_numeric(df["fip"], errors="coerce").fillna(0)
+
+    # On garde uniquement le mois demandé (Sept, Oct, etc.)
+    df = df[df["mois_norm"] == mois_cible]
+
+    if df.empty:
+        return {
+            "mois": mois_cible,
+            "total_general": 0.0,
+            "details_sections": {}
+        }
+
+    # Total par section
+    group = df.groupby("section")["fip"].sum()
+
+    total_general = group.sum()
+    details_sections = {sec: round(float(val), 2) for sec, val in group.items()}
+
+    return {
+        "mois": mois_cible,
+        "total_general": round(float(total_general), 2),
+        "details_sections": details_sections
     }
 
 
 # ===============================================================
 # 🔵 4. ROUTES API DE BASE
 # ===============================================================
-
 @app.route("/")
 def home():
     return jsonify({"status": "ok", "message": "API Solde Élève opérationnelle."})
 
-
 @app.route("/api/ping")
 def ping():
     return jsonify({"message": "API en ligne"})
-
-
-# ===============================================================
-# 🔵 5. /api/eleve/<matricule> — Version complète (WEB)
-# ===============================================================
 
 @app.route("/api/eleve/<matricule>")
 def api_eleve(matricule):
@@ -225,19 +224,11 @@ def api_eleve(matricule):
         conn = sqlite3.connect(DB_PATH)
         data = calcul_fip_eleve(matricule, conn)
         conn.close()
-
         if data is None:
             return jsonify({"error": f"Aucun élève trouvé pour {matricule}"}), 404
-
         return jsonify(data)
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-# ===============================================================
-# 🔵 6. /api/mobile/eleve/<matricule> — Version allégée (Mobile)
-# ===============================================================
 
 @app.route("/api/mobile/eleve/<matricule>")
 def api_mobile_eleve(matricule):
@@ -245,378 +236,1823 @@ def api_mobile_eleve(matricule):
         conn = sqlite3.connect(DB_PATH)
         data = calcul_fip_eleve(matricule, conn)
         conn.close()
-
         if data is None:
             return jsonify({"error": f"Aucun élève trouvé pour {matricule}"}), 404
-
-        # On renvoie seulement l'essentiel pour le mobile
         mobile_data = {
-            "nom": data["nom"],
-            "matricule": data["matricule"],
-            "classe": data["classe"],
-            "section": data["section"],
-            "categorie": data["categorie"],
-            "fip_mensuel": data["fip_mensuel"],
-            "fip_total": data["fip_total"],
-            "solde_fip": data["solde_fip"],
-            "mois_payes": data["mois_payes"],
-            "mois_non_payes": data["mois_non_payes"],
+            "nom": data["nom"], "matricule": data["matricule"], "classe": data["classe"],
+            "section": data["section"], "categorie": data["categorie"],
+            "fip_mensuel": data["fip_mensuel"], "fip_total": data["fip_total"], "solde_fip": data["solde_fip"],
+            "mois_payes": data["mois_payes"], "mois_non_payes": data["mois_non_payes"]
         }
-
         return jsonify(mobile_data)
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-# ===============================================================
-# 🔵 7. /api/dashboard — Statistiques globales
-# ===============================================================
 
 @app.route("/api/dashboard")
 def api_dashboard():
     try:
         conn = sqlite3.connect(DB_PATH)
-
         nb_eleves = pd.read_sql_query("SELECT COUNT(*) AS n FROM eleves;", conn)["n"][0]
         nb_paiements = pd.read_sql_query("SELECT COUNT(*) AS n FROM paiements;", conn)["n"][0]
-
-        # Total FIP payé
-        total_fip = pd.read_sql_query("SELECT SUM(fip) AS s FROM paiements;", conn)["s"][0]
-        total_fip = float(total_fip or 0.0)
-
-        # Exemple : compter les classes distinctes
-        nb_classes = pd.read_sql_query(
-            "SELECT COUNT(DISTINCT classe) AS n FROM eleves WHERE classe IS NOT NULL;",
-            conn
-        )["n"][0]
-
+        total_fip = float(pd.read_sql_query("SELECT SUM(fip) AS s FROM paiements;", conn)["s"][0] or 0.0)
+        nb_classes = pd.read_sql_query("SELECT COUNT(DISTINCT classe) AS n FROM eleves WHERE classe IS NOT NULL;", conn)["n"][0]
         conn.close()
-
-        return jsonify({
-            "nb_eleves": int(nb_eleves),
-            "nb_paiements": int(nb_paiements),
-            "nb_classes": int(nb_classes),
-            "total_fip_paye": round(total_fip, 2)
-        })
-
+        return jsonify({"nb_eleves": int(nb_eleves), "nb_paiements": int(nb_paiements),
+                        "nb_classes": int(nb_classes), "total_fip_paye": round(total_fip,2)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+       
 
 
 # ===============================================================
-# 🔵 8. /api/classe/<classe> — Infos par classe
+# 🔵 18. PDF par Classe (étape 1)
 # ===============================================================
+PDF_CLASSE_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>PDF par Classe</title>
+
+<style>
+body {
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(to right, #e3f2fd, #ffffff);
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    display: flex;
+    justify-content: center;
+    margin-top: 90px;
+}
+
+.card {
+    background: #ffffff;
+    width: 420px;
+    padding: 30px 35px;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    text-align: center;
+}
+
+.card h2 {
+    margin: 0;
+    margin-bottom: 12px;
+    color: #0d47a1;
+    font-size: 20px;
+    letter-spacing: 1px;
+}
+
+.marquee {
+    background: #e3f2fd;
+    border-radius: 8px;
+    padding: 8px;
+    margin-bottom: 20px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.marquee span {
+    display: inline-block;
+    animation: defilement 14s linear infinite;
+    color: #1565c0;
+    font-size: 14px;
+}
+
+@keyframes defilement {
+    0%   { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
+}
+
+input[type=text] {
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid #bbb;
+    margin-bottom: 20px;
+    font-size: 15px;
+}
+
+.btn {
+    display: block;
+    width: 100%;
+    padding: 13px;
+    margin-bottom: 12px;
+    border: none;
+    border-radius: 10px;
+    background: #1976d2;
+    color: white;
+    font-size: 15px;
+    cursor: pointer;
+}
+
+.btn:hover {
+    background: #0d47a1;
+}
+
+.btn-secondary {
+    background: #2e7d32;
+}
+
+.btn-secondary:hover {
+    background: #1b5e20;
+}
+
+.back {
+    margin-top: 15px;
+    display: inline-block;
+    text-decoration: none;
+    color: #444;
+    font-size: 14px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+    <div class="card">
+        <h2>PDF PAR CLASSE</h2>
+
+        <div class="marquee">
+            <span>📄 Générez les rapports PDF par classe – Montants payés ou mois non payés</span>
+        </div>
+
+        <form method="GET" action="/admin/pdf_classe_choix">
+            <input type="text" name="classe" placeholder="Exemple : 6P, 4CG, 2HP" required>
+
+            <button class="btn" name="type" value="paye">
+                📄 PDF – Montants payés
+            </button>
+
+            <button class="btn btn-secondary" name="type" value="non_paye">
+                📄 PDF – Mois non payés
+            </button>
+        </form>
+
+        <a href="/admin/dashboard" class="back">← Retour au menu</a>
+    </div>
+</div>
+
+</body>
+</html>
+"""
+@app.route("/admin/pdf_classe")
+@login_required
+def admin_pdf_classe():
+    return render_template_string(PDF_CLASSE_HTML)
+
+
+@app.route("/admin/pdf_classe_choix")
+@login_required
+def admin_pdf_classe_choix():
+    classe = request.args.get("classe", "").strip()
+
+    if not classe:
+        return "Classe manquante", 400
+
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <title>Choix PDF</title>
+
+        <style>
+            body {{
+                font-family: "Bookman Old Style", serif;
+                background: linear-gradient(to right, #f1f8ff, #ffffff);
+                margin: 0;
+                padding: 0;
+            }}
+
+            .container {{
+                display: flex;
+                justify-content: center;
+                margin-top: 100px;
+            }}
+
+            .box {{
+                background: white;
+                width: 420px;
+                padding: 30px;
+                border-radius: 16px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+                text-align: center;
+            }}
+
+            h2 {{
+                color: #0d47a1;
+                margin-bottom: 20px;
+            }}
+
+            .btn {{
+                display: block;
+                margin: 15px 0;
+                padding: 14px;
+                background: #1976d2;
+                color: white;
+                text-decoration: none;
+                border-radius: 10px;
+                font-size: 16px;
+            }}
+
+            .btn:hover {{
+                background: #0d47a1;
+            }}
+
+            .btn.impaye {{
+                background: #c62828;
+            }}
+
+            .btn.impaye:hover {{
+                background: #8e0000;
+            }}
+
+            .back {{
+                margin-top: 20px;
+                display: block;
+                text-decoration: none;
+                color: #555;
+            }}
+        </style>
+    </head>
+
+    <body>
+
+        <div class="container">
+            <div class="box">
+
+                <h2>Classe {classe}</h2>
+
+                <a class="btn" href="/api/rapport_classe/{classe}">
+                    📊 PDF des montants payés
+                </a>
+
+                <a class="btn impaye" href="/api/rapport_classe/{classe}?type=impaye">
+                    📆 PDF des mois non payés
+                </a>
+
+                <a href="/admin/pdf_classe" class="back">← Retour</a>
+
+            </div>
+        </div>
+
+    </body>
+    </html>
+    """
+    return html
+
 
 @app.route("/api/classe/<classe>")
 def api_classe(classe):
     try:
         conn = sqlite3.connect(DB_PATH)
-
-        # Liste des élèves de la classe
-        eleves_df = pd.read_sql_query(
-            "SELECT * FROM eleves WHERE LOWER(classe)=LOWER(?)",
-            conn, params=(classe,)
-        )
-
+        eleves_df = pd.read_sql_query("SELECT * FROM eleves WHERE LOWER(classe)=LOWER(?)", conn, params=(classe,))
         if eleves_df.empty:
             conn.close()
             return jsonify({"error": f"Aucun élève trouvé pour la classe {classe}"}), 404
-
-        result = []
-        for _, row in eleves_df.iterrows():
-            mat = row["matricule"]
-            data = calcul_fip_eleve(mat, conn)
-            result.append(data)
-
+        result = [calcul_fip_eleve(row["matricule"], conn) for _, row in eleves_df.iterrows()]
         conn.close()
-
-        # Petites stats pour la classe
         total_attendu = sum(e["total_attendu_fip"] for e in result)
         total_paye = sum(e["fip_total"] for e in result)
         solde_total = sum(e["solde_fip"] for e in result)
-
-        return jsonify({
-            "classe": classe,
-            "nb_eleves": len(result),
-            "total_attendu_fip": round(total_attendu, 2),
-            "total_paye_fip": round(total_paye, 2),
-            "solde_total_fip": round(solde_total, 2),
-            "eleves": result
-        })
-
+        return jsonify({"classe": classe, "nb_eleves": len(result),
+                        "total_attendu_fip": round(total_attendu,2),
+                        "total_paye_fip": round(total_paye,2),
+                        "solde_total_fip": round(solde_total,2),
+                        "eleves": result})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 # ===============================================================
-# 🔵 9. /api/audit — Anomalies de base
+# 🔵 13. /api/fip_section/<section> — Cumul FIP par section
 # ===============================================================
-
-@app.route("/api/audit")
-def api_audit():
-    """
-    Audit simple :
-    - NumRecu dupliqués dans paiements
-    - Paiements avec fip <= 0
-    - Elèves sans classe
-    """
+@app.route("/api/fip_section/<section>")
+def api_fip_section(section):
+    mois = request.args.get("mois", None)
     try:
-        conn = sqlite3.connect(DB_PATH)
-
-        # 1) NumRecu dupliqués
-        dups = pd.read_sql_query("""
-            SELECT numrecu, COUNT(*) as cnt
-            FROM paiements
-            WHERE numrecu IS NOT NULL
-            GROUP BY numrecu
-            HAVING cnt > 1
-        """, conn)
-
-        # 2) FIP <= 0
-        fip_zero = pd.read_sql_query("""
-            SELECT *
-            FROM paiements
-            WHERE fip <= 0 OR fip IS NULL
-        """, conn)
-
-        # 3) Élèves sans classe
-        eleves_sans_classe = pd.read_sql_query("""
-            SELECT *
-            FROM eleves
-            WHERE classe IS NULL OR TRIM(classe)=''
-        """, conn)
-
-        conn.close()
-
-        return jsonify({
-            "numrecu_dupliques": dups.to_dict(orient="records"),
-            "paiements_fip_anormaux": fip_zero.to_dict(orient="records"),
-            "eleves_sans_classe": eleves_sans_classe.to_dict(orient="records")
-        })
-
+        result = calcul_fip_cumul_section(section, mois)
+        return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 # ===============================================================
-# 🔵 🔟 /api/rapport_classe/<classe> — PDF par classe
+# 🔵 14. /api/fip_mois/<mois> — Total FIP par mois
 # ===============================================================
-
-@app.route("/api/rapport_classe/<classe>")
-def api_rapport_classe(classe):
-    """
-    Génère un PDF de la classe avec :
-    - liste des élèves
-    - total FIP attendu / payé / solde
-    Retourne le fichier PDF.
-    """
+@app.route("/api/fip_mois/<mois>")
+def api_fip_mois(mois):
     try:
-        conn = sqlite3.connect(DB_PATH)
-        eleves_df = pd.read_sql_query(
-            "SELECT * FROM eleves WHERE LOWER(classe)=LOWER(?)",
-            conn, params=(classe,)
-        )
-
-        if eleves_df.empty:
-            conn.close()
-            return jsonify({"error": f"Aucun élève trouvé pour la classe {classe}"}), 404
-
-        eleves_data = []
-        for _, row in eleves_df.iterrows():
-            mat = row["matricule"]
-            data = calcul_fip_eleve(mat, conn)
-            eleves_data.append(data)
-
-        conn.close()
-
-        # Génération du PDF
-        pdf_name = f"rapport_classe_{classe}.pdf"
-        c = canvas.Canvas(pdf_name, pagesize=A4)
-        width, height = A4
-
-        y = height - 50
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(50, y, f"Rapport FIP - Classe {classe}")
-        y -= 30
-        c.setFont("Helvetica", 10)
-        c.drawString(50, y, f"Date : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        y -= 20
-
-        # En-têtes de colonnes
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(50, y, "Matricule")
-        c.drawString(130, y, "Nom")
-        c.drawString(320, y, "FIP Payé")
-        c.drawString(390, y, "Attendu")
-        c.drawString(460, y, "Solde")
-        y -= 15
-        c.setFont("Helvetica", 8)
-
-        total_attendu = 0.0
-        total_paye = 0.0
-        total_solde = 0.0
-
-        for e in eleves_data:
-            if y < 60:  # nouvelle page
-                c.showPage()
-                y = height - 50
-                c.setFont("Helvetica-Bold", 16)
-                c.drawString(50, y, f"Rapport FIP - Classe {classe} (suite)")
-                y -= 30
-                c.setFont("Helvetica-Bold", 9)
-                c.drawString(50, y, "Matricule")
-                c.drawString(130, y, "Nom")
-                c.drawString(320, y, "FIP Payé")
-                c.drawString(390, y, "Attendu")
-                c.drawString(460, y, "Solde")
-                y -= 15
-                c.setFont("Helvetica", 8)
-
-            c.drawString(50, y, str(e["matricule"]))
-            c.drawString(130, y, str(e["nom"])[:28])
-            c.drawRightString(360, y, f"{e['fip_total']:.2f}")
-            c.drawRightString(430, y, f"{e['total_attendu_fip']:.2f}")
-            c.drawRightString(500, y, f"{e['solde_fip']:.2f}")
-
-            total_attendu += e["total_attendu_fip"]
-            total_paye += e["fip_total"]
-            total_solde += e["solde_fip"]
-
-            y -= 12
-
-        # Totaux
-        y -= 10
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(50, y, "TOTAUX :")
-        c.drawRightString(360, y, f"{total_paye:.2f}")
-        c.drawRightString(430, y, f"{total_attendu:.2f}")
-        c.drawRightString(500, y, f"{total_solde:.2f}")
-
-        c.showPage()
-        c.save()
-
-        return send_file(pdf_name, as_attachment=True)
-
+        result = calcul_fip_total_par_mois(mois)
+        return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-        
-        
-  # ===============================================================
+
+# ===============================================================
 # 🔵 11 bis. Authentification ADMIN
 # ===============================================================
-
 LOGIN_FORM_HTML = """
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-    <title>Connexion Admin — Solde Élève</title>
+<meta charset="UTF-8">
+<title>Connexion Administrative - CS THZ</title>
+
+<style>
+body {
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(to right, #e3f2fd, #f9fbff);
+    margin: 0;
+    padding: 0;
+}
+
+/* 🔷 En-tête */
+.header {
+    display: flex;
+    align-items: center;
+    padding: 20px 30px;
+}
+
+.header img {
+    height: 60px;
+    margin-right: 15px;
+}
+
+.header p {
+    font-size: 14px;
+    color: #333;
+    max-width: 500px;
+}
+
+/* 🔷 Conteneur principal */
+.container {
+    display: flex;
+    justify-content: center;
+    margin-top: 40px;
+}
+
+/* 🔷 Carte de connexion */
+.login-card {
+    background: white;
+    width: 380px;
+    padding: 30px 35px;
+    border-radius: 16px;
+    box-shadow: 0 12px 25px rgba(0,0,0,0.18);
+    text-align: center;
+}
+
+/* 🔷 Titre */
+.login-card h2 {
+    border: 2px solid #1565c0;
+    padding: 12px;
+    border-radius: 12px;
+    background: linear-gradient(to right, #1976d2, #42a5f5);
+    color: white;
+    margin-bottom: 25px;
+    font-size: 18px;
+    letter-spacing: 1px;
+}
+
+/* 🔷 Champs */
+.login-card input[type="password"] {
+    width: 90%;
+    padding: 12px;
+    font-size: 14px;
+    border-radius: 8px;
+    border: 1px solid #bbb;
+    margin-bottom: 18px;
+}
+
+/* 🔷 Bouton */
+.login-card button {
+    width: 95%;
+    padding: 12px;
+    background: #1976d2;
+    color: white;
+    font-size: 15px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.3s, transform 0.2s;
+}
+
+.login-card button:hover {
+    background: #0d47a1;
+    transform: scale(1.03);
+}
+
+/* 🔷 Message erreur */
+.error {
+    color: #c62828;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+</style>
 </head>
-<body style="font-family:Arial; margin:40px;">
-    <h2>🔐 Connexion Administrateur</h2>
 
-    {% if error %}
-        <p style="color:red;">{{ error }}</p>
-    {% endif %}
+<body>
 
-    <form method="POST">
-        <p>Mot de passe :</p>
-        <input type="password" name="password" required>
-        <br><br>
-        <button type="submit" style="padding:8px 16px;">Se connecter</button>
-    </form>
-
-    <p style="margin-top:20px;">
-        <a href="/">Retour à l'API</a>
+<!-- 🔷 ENTÊTE -->
+<div class="header">
+    <img src="{{ url_for('static', filename='images/logo_csnst.png') }}" alt="Logo CS THZ">
+    <p>
+        Accès réservé à l'administration du système de gestion des soldes élèves.
+        Toute tentative non autorisée est strictement interdite.
     </p>
+</div>
+
+<!-- 🔷 FORMULAIRE -->
+<div class="container">
+    <div class="login-card">
+
+        <h2>CONNEXION ADMINISTRATEUR</h2>
+
+        {% if error %}
+            <div class="error">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST">
+            <input type="password" name="password" placeholder="Mot de passe administrateur" required>
+            <button type="submit">Se connecter</button>
+        </form>
+
+    </div>
+</div>
+
 </body>
 </html>
 """
 
-@app.route("/admin/login", methods=["GET", "POST"])
+
+@app.route("/admin/login", methods=["GET","POST"])
 def admin_login():
-    """Page de login admin."""
-    error = None
-    if request.method == "POST":
-        pwd = request.form.get("password")
-        if pwd == ADMIN_PASSWORD:
-            session["admin_logged"] = True
-            return redirect(url_for("admin_upload_form"))
+    error=None
+    if request.method=="POST":
+        pwd=request.form.get("password")
+        if pwd==ADMIN_PASSWORD:
+            session["admin_logged"]=True
+            #return redirect(url_for("admin_upload_form"))
+            return redirect(url_for("admin_dashboard"))
+
         else:
-            error = "Mot de passe incorrect."
-
-    return render_template_string(LOGIN_FORM_HTML, error=error)
-
+            error="Mot de passe incorrect."
+    return render_template_string(LOGIN_FORM_HTML,error=error)
 
 @app.route("/admin/logout")
 def admin_logout():
-    """Déconnexion de l'admin."""
-    session.pop("admin_logged", None)
+    session.pop("admin_logged",None)
     return redirect(url_for("admin_login"))
-      
 
 # ===============================================================
-# 🔵 12. Interface d'import Excel
+# 🔵 12. Interface et routes upload Excel
 # ===============================================================
 
 UPLOAD_FORM_HTML = """
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-    <title>Import Excel — Solde Élève</title>
+    <meta charset="UTF-8">
+    <title>Importation du fichier mensuel</title>
+    <style>
+        body {
+            font-family: "Bookman Old Style", serif;
+            background: linear-gradient(to right, #f0f4ff, #e6ecff);
+        }
+        .box {
+            width: 520px;
+            margin: 80px auto;
+            padding: 30px;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.15);
+            text-align: center;
+            border: 3px solid #2b4eff;
+        }
+        h2 {
+            color: #2b4eff;
+            margin-bottom: 25px;
+        }
+        input[type="file"] {
+            margin: 20px 0;
+        }
+        button {
+            padding: 12px 22px;
+            font-size: 16px;
+            background-color: #2b4eff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #1f37b8;
+        }
+        .back-btn {
+            display: inline-block;
+            margin-top: 25px;
+            text-decoration: none;
+            color: #2b4eff;
+            font-weight: bold;
+        }
+        .back-btn:hover {
+            text-decoration: underline;
+        }
+    </style>
 </head>
-<body style="font-family:Arial; margin:40px;">
-    <h2>📊 Importation du fichier Excel</h2>
+<body>
 
-    <form action="/admin/upload_excel" method="POST" enctype="multipart/form-data">
-        <p><b>Sélectionnez le fichier Excel :</b></p>
-        <input type="file" name="excel_file" accept=".xlsx" required>
-        <br><br>
-        <button type="submit" style="padding:10px 20px;">Importer</button>
+<div class="box">
+    <h2>📥 Importation du fichier Excel mensuel</h2>
+
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="excel_file" accept=".xlsx" required><br>
+        <button type="submit">Importer le fichier</button>
     </form>
 
-    <p style="margin-top:30px;">
-        <a href="/">Retour API</a>
-    </p>
+    <a href="/admin/dashboard" class="back-btn">⬅ Retour au menu principal</a>
+</div>
+
 </body>
 </html>
 """
 
+
 @app.route("/admin/upload_excel", methods=["GET"])
 @login_required
 def admin_upload_form():
-    """Affiche le formulaire HTML."""
     return render_template_string(UPLOAD_FORM_HTML)
-
 
 @app.route("/admin/upload_excel", methods=["POST"])
 @login_required
 def admin_upload_excel():
-    """Reçoit un fichier Excel, le sauvegarde et relance l'import."""
     if "excel_file" not in request.files:
         return jsonify({"error": "Aucun fichier reçu"}), 400
-    
     f = request.files["excel_file"]
-
     if f.filename == "":
         return jsonify({"error": "Nom de fichier vide"}), 400
-
-    # On remplace l'ancien Excel par le nouveau
     excel_path = "THZBD2526GA.xlsx"
     f.save(excel_path)
-
     try:
-        # Exécution PRO : reconstruit thz.db
         stats = import_excel.run_import()
-
-        return jsonify({
-            "status": "ok",
-            "message": "Importation réussie",
-            "stats": stats
-        })
-
+        return jsonify({"status":"ok","message":"Importation réussie","stats":stats})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# ===============================================================
+# 🔵 15. Interface admin pour calcul FIP mensuel
+# ===============================================================
+FIP_FORM_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Calcul FIP Mensuel — CS THZ</title>
+
+<style>
+body {
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(to right, #eef5ff, #ffffff);
+    margin: 0;
+    padding: 0;
+}
+
+/* 🔷 EN-TÊTE */
+.header {
+    display: flex;
+    align-items: center;
+    padding: 18px 40px;
+}
+
+.header img {
+    height: 55px;
+    margin-right: 15px;
+}
+
+.header h1 {
+    font-size: 22px;
+    color: #0d47a1;
+    margin: 0;
+}
+
+/* 🔷 CONTENEUR */
+.container {
+    display: flex;
+    justify-content: center;
+    margin-top: 50px;
+}
+
+/* 🔷 CARTE */
+.card {
+    background: white;
+    padding: 30px 40px;
+    border-radius: 14px;
+    width: 480px;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.15);
+    text-align: center;
+}
+
+.card h2 {
+    color: #0d47a1;
+    margin-bottom: 12px;
+}
+
+/* 🔷 TEXTE DÉFILANT */
+.marquee-box {
+    overflow: hidden;
+    background: #e3f2fd;
+    border-radius: 8px;
+    padding: 8px;
+    margin-bottom: 22px;
+    border: 1px solid #90caf9;
+}
+
+.marquee {
+    display: inline-block;
+    white-space: nowrap;
+    animation: scroll-left 15s linear infinite;
+    color: #1565c0;
+    font-size: 14px;
+}
+
+@keyframes scroll-left {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
+}
+
+/* 🔷 FORMULAIRES */
+form {
+    margin-bottom: 25px;
+}
+
+input {
+    padding: 8px;
+    width: 85%;
+    border-radius: 6px;
+    border: 1px solid #90caf9;
+    font-family: "Bookman Old Style", serif;
+}
+
+button {
+    margin-top: 10px;
+    padding: 10px;
+    width: 90%;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    background: #1976d2;
+    color: white;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+button:hover {
+    background: #0d47a1;
+}
+
+/* 🔷 BOUTON RETOUR */
+.back-btn {
+    display: block;
+    margin-top: 20px;
+    padding: 10px;
+    background: #2e7d32;
+    color: white;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: background 0.3s;
+}
+
+.back-btn:hover {
+    background: #1b5e20;
+}
+</style>
+</head>
+
+<body>
+
+<!-- 🔷 EN-TÊTE -->
+<div class="header">
+    <img src="{{ url_for('static', filename='images/logo_csnst.png') }}">
+    <h1>COMPLEXE SCOLAIRE THZ</h1>
+</div>
+
+<!-- 🔷 CONTENU -->
+<div class="container">
+    <div class="card">
+
+        <h2>📅 CALCUL FIP MENSUEL</h2>
+
+        <div class="marquee-box">
+            <div class="marquee">
+                Suivi financier intelligent — Transparence, rigueur et maîtrise des paiements scolaires
+            </div>
+        </div>
+
+        <h3>1️⃣ Total payé par section</h3>
+        <form method="GET" action="/admin/fip_section_result">
+            <input type="text" name="section" placeholder="Ex : EB, HP, CG..." required><br>
+            <input type="text" name="mois" placeholder="Mois (optionnel)"><br>
+            <button type="submit">Calculer</button>
+        </form>
+
+        <h3>2️⃣ Total payé par mois (toutes sections)</h3>
+        <form method="GET" action="/admin/fip_mois_result">
+            <input type="text" name="mois" placeholder="Ex : Sept, Oct, Nov..." required><br>
+            <button type="submit">Calculer</button>
+        </form>
+
+        <a href="/admin/dashboard" class="back-btn">← Retour Menu</a>
+
+    </div>
+</div>
+
+</body>
+</html>
+"""
+
+@app.route("/admin/fip", methods=["GET"])
+@login_required
+def admin_fip_form():
+    return render_template_string(FIP_FORM_HTML)
+    
+ #==============================================
+ #        Route  FIP SECTION  RESULTAT
+ #=============================================
+ 
+@app.route("/admin/fip_section_result", methods=["GET"])
+@login_required
+def admin_fip_section_result():
+    section = request.args.get("section","")
+    mois = request.args.get("mois",None)
+
+    if not section:
+        return "Section manquante.", 400
+
+    try:
+        result = calcul_fip_cumul_section(section, mois)
+
+        mois_html = ", ".join(result["mois_cumul"]) if result["mois_cumul"] else "Aucun"
+
+        html = f"""
+        <!DOCTYPE html>
+        <html lang="fr">
+        <head>
+        <meta charset="UTF-8">
+        <title>Résultat FIP Section</title>
+
+        <style>
+        body {{
+            font-family: "Bookman Old Style", serif;
+            background: linear-gradient(to right, #fffde7, #ffffff);
+            margin: 0;
+            padding: 0;
+        }}
+
+        .container {{
+            width: 65%;
+            margin: 60px auto;
+            background: white;
+            padding: 30px 40px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            text-align: center;
+        }}
+
+        .marquee {{
+            background: #f57f17;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }}
+
+        h2 {{
+            color: #e65100;
+            margin-bottom: 20px;
+            letter-spacing: 1px;
+        }}
+
+        .info {{
+            font-size: 16px;
+            margin: 12px 0;
+        }}
+
+        .total {{
+            margin-top: 20px;
+            font-size: 18px;
+            color: #2e7d32;
+            font-weight: bold;
+        }}
+
+        .btn {{
+            display: inline-block;
+            margin-top: 30px;
+            padding: 12px 22px;
+            background: #f57f17;
+            color: white;
+            text-decoration: none;
+            border-radius: 10px;
+            transition: background 0.3s;
+        }}
+
+        .btn:hover {{
+            background: #e65100;
+        }}
+        </style>
+        </head>
+
+        <body>
+
+        <div class="container">
+
+            <div class="marquee">
+                <marquee behavior="scroll" direction="left">
+                    📈 Analyse financière par section — Une vision claire pour une gestion efficace
+                </marquee>
+            </div>
+
+            <h2>📊 FIP – SECTION : {result['section']}</h2>
+
+            <div class="info"><b>Mois cumulés :</b> {mois_html}</div>
+
+            <div class="total">
+                TOTAL PAYÉ : {result['total_paye']}
+            </div>
+
+            <a href="/admin/dashboard" class="btn">← Retour au Menu</a>
+
+        </div>
+
+        </body>
+        </html>
+        """
+        return html
+
+    except Exception as e:
+        return f"Erreur : {str(e)}",500
+
+ #==============================================
+ #        Route  FIP MOIS   RESULTAT
+ #============================================   
+
+@app.route("/admin/fip_mois_result", methods=["GET"])
+@login_required
+def admin_fip_mois_result():
+    mois = request.args.get("mois", "")
+    if not mois:
+        return "Mois manquant.", 400
+
+    try:
+        result = calcul_fip_total_par_mois(mois)
+
+        rows_html = ""
+        for section, montant in result["details_sections"].items():
+            rows_html += f"""
+            <tr>
+                <td>{section}</td>
+                <td>{montant}</td>
+            </tr>
+            """
+
+        html = f"""
+        <!DOCTYPE html>
+        <html lang="fr">
+        <head>
+            <meta charset="UTF-8">
+            <title>Calcul Mensuel FIP</title>
+
+            <style>
+                body {{
+                    font-family: "Bookman Old Style", serif;
+                    background: linear-gradient(to right, #e3f2fd, #ffffff);
+                    margin: 0;
+                    padding: 0;
+                }}
+
+                .container {{
+                    width: 75%;
+                    margin: 60px auto;
+                    background: white;
+                    border-radius: 14px;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+                    padding: 30px 40px;
+                    text-align: center;
+                }}
+
+                .marquee {{
+                    background: #0d47a1;
+                    color: white;
+                    padding: 10px;
+                    border-radius: 8px;
+                    margin-bottom: 25px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }}
+
+                h2 {{
+                    color: #0d47a1;
+                    margin-bottom: 20px;
+                    letter-spacing: 1px;
+                }}
+
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 20px;
+                }}
+
+                th, td {{
+                    border: 1px solid #ccc;
+                    padding: 10px;
+                    text-align: center;
+                }}
+
+                th {{
+                    background: #1976d2;
+                    color: white;
+                }}
+
+                tr:nth-child(even) {{
+                    background: #f5faff;
+                }}
+
+                .total {{
+                    margin-top: 25px;
+                    font-size: 18px;
+                    font-weight: bold;
+                    color: #1b5e20;
+                }}
+
+                .btn {{
+                    display: inline-block;
+                    margin-top: 30px;
+                    padding: 12px 25px;
+                    background: #0d47a1;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 10px;
+                    transition: background 0.3s;
+                }}
+
+                .btn:hover {{
+                    background: #002171;
+                }}
+            </style>
+        </head>
+
+        <body>
+
+            <div class="container">
+
+                <div class="marquee">
+                    <marquee behavior="scroll" direction="left">
+                        📊 Suivi mensuel intelligent du FIP — Transparence • Rigueur • Gestion moderne
+                    </marquee>
+                </div>
+
+                <h2>📅 TOTAL REÇU POUR LE MOIS DE : {result["mois"]}</h2>
+
+                <table>
+                    <tr>
+                        <th>Section</th>
+                        <th>Montant Total</th>
+                    </tr>
+                    {rows_html}
+                </table>
+
+                <div class="total">
+                    💰 TOTAL GÉNÉRAL : {result["total_general"]}
+                </div>
+
+                <a href="/admin/dashboard" class="btn">← Retour au Menu Principal</a>
+
+            </div>
+
+        </body>
+        </html>
+        """
+
+        return html
+
+    except Exception as e:
+        return f"Erreur : {str(e)}", 500
+
+
+# ==================================================================================================
+# 🔵 MENU PRINCIPAL ADMIN (TABLEAU DE BORD)  HTML + CSS (à intégrer dans ton ADMIN_DASHBOARD_HTML)
+# ==================================================================================================
+
+# ===============================================================
+# 🔵 Interface Dashboard ADMIN (MENU)
+# ===============================================================
+
+DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Admin Dashboard - CS THZ</title>
+
+<style>
+body {
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(135deg, #e3f2fd, #ffffff);
+    margin: 0;
+    padding: 0;
+}
+
+/* ===== ENTÊTE ===== */
+.header {
+    display: flex;
+    align-items: center;
+    padding: 20px 40px;
+}
+
+.header img {
+    height: 60px;
+    margin-right: 20px;
+}
+
+.header h1 {
+    font-size: 24px;
+    color: #0d47a1;
+    margin: 0;
+    font-weight: bold;
+}
+
+/* ===== TEXTE DÉFILANT ===== */
+.marquee-box {
+    width: 100%;
+    background: #0d47a1;
+    color: white;
+    padding: 10px 0;
+    font-size: 14px;
+    letter-spacing: 1px;
+    overflow: hidden;
+}
+
+.marquee-box marquee {
+    font-weight: bold;
+}
+
+/* ===== MENU ===== */
+.menu-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 40px;
+}
+
+.menu {
+    background: white;
+    padding: 28px 40px;
+    border-radius: 14px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    text-align: center;
+    width: 360px;
+}
+
+.menu h2 {
+    margin-bottom: 18px;
+    color: #0d47a1;
+    font-size: 17px;
+    letter-spacing: 1.5px;
+    border-bottom: 2px solid #e3f2fd;
+    padding-bottom: 10px;
+}
+
+.menu-btn {
+    display: block;
+    margin: 10px 0;
+    padding: 12px;
+    background: #1976d2;
+    color: white;
+    text-decoration: none;
+    border-radius: 10px;
+    font-size: 15px;
+    transition: all 0.35s ease;
+}
+
+.menu-btn:nth-child(2):hover {
+    background: linear-gradient(to right, #1e88e5, #42a5f5);
+}
+
+.menu-btn:nth-child(3):hover {
+    background: linear-gradient(to right, #43a047, #66bb6a);
+}
+
+.menu-btn:nth-child(4):hover {
+    background: linear-gradient(to right, #fb8c00, #ffb74d);
+}
+
+.menu-btn:nth-child(5):hover {
+    background: linear-gradient(to right, #6a1b9a, #ab47bc);
+}
+
+.menu-btn:hover {
+    transform: scale(1.03);
+    background: linear-gradient(to right, #0d47a1, #08306b);
+}
+
+.menu-btn.logout {
+    background: #c62828;
+}
+
+.menu-btn.logout:hover {
+    background: linear-gradient(to right, #b71c1c, #e53935);
+}
+
+/* ===== FOOTER INFO ===== */
+.footer-info {
+    margin-top: 18px;
+    font-size: 12px;
+    color: #444;
+    line-height: 1.6;
+    border-top: 1px solid #e3f2fd;
+    padding-top: 12px;
+}
+</style>
+</head>
+
+<body>
+
+<!-- ENTÊTE -->
+<div class="header">
+    <img src="{{ url_for('static', filename='images/logo_csnst.png') }}">
+    <h1>COMPLEXE SCOLAIRE NSANGA LE THANZIE</h1>
+</div>
+
+<!-- TEXTE DÉFILANT -->
+<div class="marquee-box">
+    <marquee direction="left">
+        Plateforme numérique de gestion scolaire — Transparence • Rigueur • Excellence administrative
+    </marquee>
+</div>
+
+<!-- MENU -->
+<div class="menu-container">
+    <div class="menu">
+        <h2>MENU ADMINISTRATEUR</h2>
+
+        <a href="/admin/fip_eleve" class="menu-btn">📊 Calcul FIP Élève</a>
+        <a href="/admin/pdf_classe" class="menu-btn">📄 PDF par Classe</a>
+        <a href="/admin/fip" class="menu-btn">📅 Calcul FIP Mensuel</a>
+        <a href="/admin/confirm_import" class="menu-btn">📥 Import Excel</a>
+        <a href="/admin/journal" class="menu-btn">📘 Journal des paiements</a>
+        <a href="/admin/logout" class="menu-btn logout">🚪 Déconnexion</a>
+        
+
+        <!-- INFOS -->
+        <div class="footer-info">
+            Adresse : 165 Av Kasangulu, croisement des Églises,<br>
+            Q/Gambela 2, C/Lubumbashi, Ville de Lubumbashi, RDC<br>
+            Téléphone : <b>+243 974 773 760</b>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
+"""
+
+
+
+@app.route("/admin/dashboard")
+@login_required
+def admin_dashboard():
+    return render_template_string(DASHBOARD_HTML)
+
+
+@app.route("/api/rapport_classe/<classe>")
+@login_required
+def rapport_pdf_classe(classe):
+
+    type_pdf = request.args.get("type", "paye")  # paye | impaye
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    # ===============================
+    # 1️⃣ LISTE DES ÉLÈVES DE LA CLASSE
+    # ===============================
+    cur.execute("""
+        SELECT matricule, nom, categorie
+        FROM eleves
+        WHERE classe = ?
+        ORDER BY nom
+    """, (classe,))
+    eleves = cur.fetchall()
+
+    if not eleves:
+        conn.close()
+        return f"Aucun élève trouvé pour la classe {classe}", 404
+
+    lignes = []
+
+    for matricule, nom, categorie in eleves:
+        data = calcul_fip_eleve(matricule, conn)
+
+        if type_pdf == "impaye":
+            valeur = ", ".join(data["mois_non_payes"])
+        else:
+            valeur = data["fip_total"]
+
+        lignes.append((matricule, nom, valeur))
+
+    conn.close()
+
+    # ===============================
+    # 2️⃣ GÉNÉRATION PDF
+    # ===============================
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    nom_pdf = f"rapport_{classe}_{type_pdf}.pdf"
+    chemin = os.path.join("temp", nom_pdf)
+    os.makedirs("temp", exist_ok=True)
+
+    c = canvas.Canvas(chemin, pagesize=A4)
+    largeur, hauteur = A4
+
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(40, hauteur - 40, f"RAPPORT CLASSE : {classe}")
+
+    titre = "MONTANTS PAYÉS" if type_pdf == "paye" else "MOIS NON PAYÉS"
+    c.setFont("Helvetica", 11)
+    c.drawString(40, hauteur - 70, f"Type : {titre}")
+
+    y = hauteur - 110
+    c.setFont("Helvetica", 9)
+
+    for m, nom, val in lignes:
+        if y < 60:
+            c.showPage()
+            y = hauteur - 50
+            c.setFont("Helvetica", 9)
+
+        c.drawString(40, y, m)
+        c.drawString(120, y, nom[:30])
+        c.drawString(350, y, str(val))
+        y -= 14
+
+    c.save()
+
+    return send_file(chemin, as_attachment=True)
+    
+    #==========================================
+    #  HTML de confirmation
+    #==========================================
+
+CONFIRM_IMPORT_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Confirmation Import Excel</title>
+<style>
+body{
+    font-family:"Bookman Old Style", serif;
+    background: linear-gradient(to right, #e3f2fd, #f8fbff);
+}
+.box{
+    width:360px;
+    margin:120px auto;
+    background:white;
+    padding:30px;
+    border-radius:14px;
+    box-shadow:0 8px 20px rgba(0,0,0,0.2);
+    text-align:center;
+}
+h2{
+    color:#0d47a1;
+    margin-bottom:20px;
+}
+input{
+    width:100%;
+    padding:10px;
+    margin-top:10px;
+    border-radius:8px;
+    border:1px solid #ccc;
+}
+button{
+    margin-top:20px;
+    padding:10px;
+    width:100%;
+    border:none;
+    border-radius:8px;
+    background:#1976d2;
+    color:white;
+    font-size:15px;
+    cursor:pointer;
+}
+button:hover{
+    background:#0d47a1;
+}
+.error{
+    color:red;
+    margin-top:15px;
+}
+a{
+    display:block;
+    margin-top:20px;
+    color:#555;
+    text-decoration:none;
+}
+</style>
+</head>
+
+<body>
+<div class="box">
+<h2>🔐 Confirmation Import Excel</h2>
+<p>Veuillez saisir le mot de passe administrateur</p>
+
+{% if error %}
+<p class="error">{{ error }}</p>
+{% endif %}
+
+<form method="POST">
+    <input type="password" name="password" placeholder="Mot de passe" required>
+    <button type="submit">Valider</button>
+</form>
+
+<a href="/admin/dashboard">← Retour au menu</a>
+</div>
+</body>
+</html>
+"""
+
+@app.route("/admin/confirm_import", methods=["GET", "POST"])
+@login_required
+def admin_confirm_import():
+    error = None
+    if request.method == "POST":
+        pwd = request.form.get("password")
+        if pwd == ADMIN_PASSWORD:
+            return redirect(url_for("admin_upload_form"))
+        else:
+            error = "❌ Mot de passe incorrect."
+    return render_template_string(CONFIRM_IMPORT_HTML, error=error)
+
+ # ===============================================================
+# 🔵 17. Calcul FIP par Élève (recherche matricule)
+# ===============================================================
+# ===============================================================
+# 🔵 Page CALCUL FIP ÉLÈVE (FORMULAIRE)
+# ===============================================================
+FIP_ELEVE_FORM_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Calcul FIP Élève</title>
+
+<style>
+body {
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(to right, #e3f2fd, #f8fbff);
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    display: flex;
+    justify-content: center;
+    margin-top: 100px;
+}
+
+.card {
+    background: white;
+    padding: 35px 45px;
+    border-radius: 16px;
+    width: 420px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    text-align: center;
+}
+
+h2 {
+    color: #0d47a1;
+    margin-bottom: 25px;
+}
+
+input {
+    width: 100%;
+    padding: 12px;
+    font-size: 15px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    border: 1px solid #bbb;
+}
+
+button {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+    background: #1976d2;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #0d47a1;
+}
+
+a {
+    display: block;
+    margin-top: 20px;
+    color: #1976d2;
+    text-decoration: none;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+    <div class="card">
+        <h2>📊 Calcul FIP Élève</h2>
+
+        <form method="GET" action="/admin/fip_eleve_result">
+            <input type="text" name="matricule" placeholder="Numéro matricule de l'élève" required>
+            <button type="submit">Afficher le FIP</button>
+        </form>
+
+        <a href="/admin/dashboard">← Retour au menu</a>
+    </div>
+</div>
+
+</body>
+</html>
+"""
+
+@app.route("/admin/fip_eleve")
+@login_required
+def admin_fip_eleve():
+    return render_template_string(FIP_ELEVE_FORM_HTML)
+
+
+ 
+#==============================================
+#RESULTAT ELEVE (Recherche par Numéro Matricule
+#============================================== 
+
+# ===============================================================
+# 🔵 RÉSULTAT CALCUL FIP ÉLÈVE
+# ===============================================================
+@app.route("/admin/fip_eleve_result")
+@login_required
+def admin_fip_eleve_result():
+    matricule = request.args.get("matricule", "").strip()
+    if not matricule:
+        return "Matricule manquant", 400
+
+    conn = sqlite3.connect(DB_PATH)
+    data = calcul_fip_eleve(matricule, conn)
+    conn.close()
+
+    if not data:
+        return "Élève introuvable", 404
+
+    html = f"""
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Résultat FIP Élève</title>
+
+<style>
+body {{
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(to right, #f1f8ff, #ffffff);
+    margin: 0;
+    padding: 0;
+}}
+
+.container {{
+    display: flex;
+    justify-content: center;
+    margin-top: 60px;
+}}
+
+.card {{
+    background: white;
+    padding: 35px 45px;
+    border-radius: 16px;
+    width: 650px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.15);
+}}
+
+h2 {{
+    color: #0d47a1;
+    text-align: center;
+}}
+
+.section {{
+    margin-top: 20px;
+}}
+
+.section p {{
+    margin: 6px 0;
+}}
+
+hr {{
+    margin: 20px 0;
+}}
+
+.actions {{
+    text-align: center;
+}}
+
+.actions a {{
+    display: inline-block;
+    margin: 10px;
+    padding: 10px 18px;
+    background: #1976d2;
+    color: white;
+    border-radius: 8px;
+    text-decoration: none;
+}}
+
+.actions a:hover {{
+    background: #0d47a1;
+}}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+    <div class="card">
+
+        <h2>📋 FICHE FIP ÉLÈVE</h2>
+
+        <div class="section">
+            <p><b>Matricule :</b> {data['matricule']}</p>
+            <p><b>Nom & Postnom :</b> {data['nom']}</p>
+            <p><b>Sexe :</b> {data.get('sexe','')}</p>
+            <p><b>Classe :</b> {data['classe']}</p>
+            <p><b>Section :</b> {data['section']}</p>
+            <p><b>Catégorie :</b> {data['categorie']}</p>
+            <p><b>Téléphone :</b> {data['telephone']}</p>
+        </div>
+
+        <hr>
+
+        <div class="section">
+            <p><b>FIP mensuel :</b> {data['fip_mensuel']}</p>
+            <p><b>Total payé :</b> {data['fip_total']}</p>
+            <p><b>Solde :</b> {data['solde_fip']}</p>
+        </div>
+
+        <hr>
+
+        <div class="section">
+            <p><b>✅ Mois payés :</b> {", ".join(data['mois_payes'])}</p>
+            <p><b>❌ Mois non payés :</b> {", ".join(data['mois_non_payes'])}</p>
+        </div>
+
+        <div class="actions">
+            <a href="/admin/fip_eleve">Nouvelle recherche</a>
+            <a href="/admin/dashboard">Menu principal</a>
+        </div>
+
+    </div>
+</div>
+
+</body>
+</html>
+"""
+    return html
+
+#============================================================
+#  JOURNAL 
+#============================================================
+
+JOURNAL_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Journal des Paiements</title>
+
+<style>
+body {
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(135deg, #e3f2fd, #ffffff);
+}
+
+.container {
+    width: 650px;
+    margin: 60px auto;
+    background: white;
+    padding: 35px;
+    border-radius: 16px;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+    text-align: center;
+}
+
+h2 { color: #0d47a1; }
+
+marquee {
+    color: #1565c0;
+    font-size: 14px;
+    margin: 20px 0;
+}
+
+input[type=date] {
+    padding: 10px;
+    width: 70%;
+    font-size: 15px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+}
+
+button {
+    margin-top: 20px;
+    padding: 12px 25px;
+    font-size: 15px;
+    border: none;
+    border-radius: 10px;
+    background: #1976d2;
+    color: white;
+    cursor: pointer;
+}
+
+button:hover { background: #0d47a1; }
+
+a {
+    display: block;
+    margin-top: 20px;
+    color: #0d47a1;
+    text-decoration: none;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+    <h2>📘 JOURNAL DES PAIEMENTS</h2>
+
+    <marquee>Suivi journalier des paiements – Transparence & rigueur financière</marquee>
+
+    <form method="GET" action="/admin/journal_result">
+        <input type="date" name="date" required>
+        <br>
+        <button type="submit">Afficher le journal</button>
+    </form>
+
+    <a href="/admin/dashboard">← Retour au menu</a>
+</div>
+</body>
+</html>
+"""
+
+@app.route("/admin/journal")
+@login_required
+def admin_journal():
+    return render_template_string(JOURNAL_HTML)
+    
+
+@app.route("/admin/journal_result")
+@login_required
+def admin_journal_result():
+    date = request.args.get("date", "")
+    if not date:
+        return "Date manquante", 400
+
+    conn = sqlite3.connect(DB_PATH)
+
+    df = pd.read_sql_query("""
+        SELECT 
+            e.matricule,
+            e.nom,
+            e.classe,
+            e.section,
+            p.mois,
+            p.fip,
+            p.numrecu
+        FROM paiements p
+        JOIN eleves e ON p.eleve_id = e.id
+        WHERE DATE(p.DatePaiement) = DATE(?)
+    """, conn, params=(date,))
+
+    conn.close()
+
+    if df.empty:
+        return f"<h3>Aucun paiement trouvé pour le {date}</h3><a href='/admin/journal'>← Retour</a>"
+
+    total_jour = df["fip"].sum()
+
+    rows = ""
+    for _, r in df.iterrows():
+        rows += f"""
+        <tr>
+            <td>{r['matricule']}</td>
+            <td>{r['nom']}</td>
+            <td>{r['classe']}</td>
+            <td>{r['section']}</td>
+            <td>{r['mois']}</td>
+            <td>{r['fip']}</td>
+            <td>{r['numrecu']}</td>
+        </tr>
+        """
+
+    return f"""
+    <html>
+    <head>
+    <style>
+    body {{ font-family:"Bookman Old Style"; background:#f4f8ff; }}
+    table {{
+        width:90%;
+        margin:40px auto;
+        border-collapse: collapse;
+        background:white;
+        box-shadow:0 6px 20px rgba(0,0,0,0.15);
+    }}
+    th, td {{ border:1px solid #ccc; padding:10px; text-align:center; }}
+    th {{ background:#1976d2; color:white; }}
+    tfoot td {{ font-weight:bold; background:#e3f2fd; }}
+    </style>
+    </head>
+
+    <body>
+    <h2 style="text-align:center;color:#0d47a1;">
+        Journal des paiements du {date}
+    </h2>
+
+    <table>
+        <tr>
+            <th>Matricule</th>
+            <th>Nom</th>
+            <th>Classe</th>
+            <th>Section</th>
+            <th>Mois</th>
+            <th>Montant</th>
+            <th>Reçu</th>
+        </tr>
+
+        {rows}
+
+        <tfoot>
+        <tr>
+            <td colspan="5">TOTAL JOURNALIER</td>
+            <td colspan="2">{total_jour}</td>
+        </tr>
+        </tfoot>
+    </table>
+
+    <div style="text-align:center;">
+        <a href="/api/journal_pdf/{date}">📄 Télécharger PDF</a> |
+        <a href="/admin/journal">← Retour</a>
+    </div>
+    </body>
+    </html>
+    """
+
+@app.route("/api/journal_pdf/<date>")
+@login_required
+def api_journal_pdf(date):
+    conn = sqlite3.connect(DB_PATH)
+
+    df = pd.read_sql_query("""
+        SELECT 
+            e.matricule, e.nom, e.classe, e.section,
+            p.mois, p.fip, p.numrecu
+        FROM paiements p
+        JOIN eleves e ON p.eleve_id = e.id
+        WHERE DATE(p.DatePaiement) = DATE(?)
+    """, conn, params=(date,))
+
+    conn.close()
+
+    if df.empty:
+        return "Aucune donnée", 404
+
+    total_jour = df["fip"].sum()
+
+    file_path = f"journal_{date}.pdf"
+    c = canvas.Canvas(file_path, pagesize=A4)
+    c.setFont("Helvetica", 9)
+
+    y = 800
+    c.drawString(50, y, f"JOURNAL DES PAIEMENTS - {date}")
+    y -= 25
+
+    for _, r in df.iterrows():
+        c.drawString(50, y, f"{r['matricule']} | {r['nom']} | {r['classe']} | {r['mois']} | {r['fip']}")
+        y -= 14
+        if y < 60:
+            c.showPage()
+            y = 800
+
+    y -= 20
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(50, y, f"TOTAL JOURNALIER : {total_jour}")
+
+    c.save()
+    return send_file(file_path, as_attachment=True)
+
 
 # ===============================================================
 # 🔵 11. Lancement local
