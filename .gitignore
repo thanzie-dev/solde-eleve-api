@@ -48,3 +48,8 @@ thz.db
 rapport_import.pdf
 
 temp/
+# ===============================
+# FICHIERS TEMPORAIRES EXCEL
+# ===============================
+~$*.xlsx
+~$*.xls
