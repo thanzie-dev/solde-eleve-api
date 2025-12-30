@@ -53,3 +53,8 @@ temp/
 # ===============================
 ~$*.xlsx
 ~$*.xls
+
+# fichiers temporaires / tests
+*.pdf
+*.json
+inspect_*.py

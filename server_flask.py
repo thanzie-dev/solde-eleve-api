@@ -13,13 +13,15 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from functools import wraps
 
+from flask import Flask, render_template_string, redirect, url_for
+
 # ===============================================================
 # 🔹 Configuration générale
 # ===============================================================
 app = Flask(__name__)
 app.secret_key = "BJ2KEL24"  # clé pour sécuriser la session
 DB_PATH = "thz.db"
-ADMIN_PASSWORD = "1971celeste"  # mot de passe admin
+ADMIN_PASSWORDS = ["1971celeste", "ILST26"] # mot de passe admin
 
 # Mois officiels
 MOIS_SCOLAIRE = [
@@ -561,6 +563,7 @@ LOGIN_FORM_HTML = """
 <title>Connexion Administrative - CS THZ</title>
 
 <style>
+
 body {
     font-family: "Bookman Old Style", serif;
     background: linear-gradient(to right, #e3f2fd, #f9fbff);
@@ -576,14 +579,14 @@ body {
 }
 
 .header img {
-    height: 60px;
+    height: 110px;
     margin-right: 15px;
 }
 
 .header p {
-    font-size: 14px;
+    font-size: 24px;
     color: #333;
-    max-width: 500px;
+    max-width: 650px;
 }
 
 /* 🔷 Conteneur principal */
@@ -649,7 +652,30 @@ body {
     font-size: 14px;
     margin-bottom: 10px;
 }
+
+@keyframes defilement-admin {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-100%); }
+}
+
+
+/* 🔹 Bloc informatif sous le formulaire */
+.info-login {
+    width: 500px;
+    margin: 15px auto 0 auto;
+    background: #f5faff;
+    border: 1px solid #bbdefb;
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 18px;
+    color: #333;
+    line-height: 1.6;
+    text-align: center;
+}
+
+
 </style>
+
 </head>
 
 <body>
@@ -658,16 +684,42 @@ body {
 <div class="header">
     <img src="{{ url_for('static', filename='images/logo_csnst.png') }}" alt="Logo CS THZ">
     <p>
-        Accès réservé à l'administration du système de gestion des soldes élèves.
-        Toute tentative non autorisée est strictement interdite.
+       COMPLEXE SCOLAIRE NSANGA LE THANZIE.
     </p>
 </div>
 
 <!-- 🔷 FORMULAIRE -->
-<div class="container">
-    <div class="login-card">
 
-        <h2>CONNEXION ADMINISTRATEUR</h2>
+<div class="container">
+      
+         
+    <div class="login-card">
+    
+     <!-- 🔔 TEXTE DÉFILANT ADMIN (AU-DESSUS DU FORMULAIRE) -->
+                   <div style="
+                      width:100%;
+                      background:#e3f2fd;
+                      border-top:2px solid #90caf9;
+                      border-bottom:2px solid #90caf9;
+                      padding:10px 0;
+                      overflow:hidden;
+                      white-space:nowrap;
+                    ">
+                       <div style="
+                          display:inline-block;
+                          padding-left:100%;
+                          animation:defilement-admin 20s linear infinite;
+                          font-size:18px;
+                          font-weight:bold;
+                          color:#0d47a1;
+                       ">
+                           🔐 L’administrateur système joue un rôle clé dans la sécurité,
+                              la fiabilité des données et la bonne gouvernance du système scolaire.
+                     </div>
+                 </div>
+    
+    
+      <h2>CONNEXION ADMINISTRATEUR</h2>
 
         {% if error %}
             <div class="error">{{ error }}</div>
@@ -677,8 +729,30 @@ body {
             <input type="password" name="password" placeholder="Mot de passe administrateur" required>
             <button type="submit">Se connecter</button>
         </form>
+        
+        <a href="/admin1/panel"
+           style="
+                 display:block;
+                 margin-top:15px;
+                 padding:12px;
+                 background:#c62828;
+                 color:white;
+                 text-decoration:none;
+                 border-radius:10px;
+                 font-size:15px;
+                 
+          ">
+          ← Retour au panel
+        </a>
 
     </div>
+</div>
+
+<div class="container">
+<div class="info-login">
+    Accès réservé à l’administration du système de gestion des soldes élèves.
+    Toute tentative d’accès non autorisée est strictement interdite.
+</div>
 </div>
 
 </body>
@@ -688,22 +762,25 @@ body {
 
 @app.route("/admin/login", methods=["GET","POST"])
 def admin_login():
-    error=None
-    if request.method=="POST":
-        pwd=request.form.get("password")
-        if pwd==ADMIN_PASSWORD:
-            session["admin_logged"]=True
-            #return redirect(url_for("admin_upload_form"))
-            return redirect(url_for("admin_dashboard"))
+    error = None
 
+    if request.method == "POST":
+        pwd = request.form.get("password", "").strip()
+
+        # 🔐 Vérification des deux mots de passe autorisés
+        if pwd in ADMIN_PASSWORDS:
+            session["admin_logged"] = True
+            return redirect(url_for("admin_dashboard"))
         else:
-            error="Mot de passe incorrect."
-    return render_template_string(LOGIN_FORM_HTML,error=error)
+            error = "Mot de passe incorrect."
+
+    return render_template_string(LOGIN_FORM_HTML, error=error)
+
 
 @app.route("/admin/logout")
 def admin_logout():
     session.pop("admin_logged",None)
-    return redirect(url_for("admin_login"))
+    return redirect(url_for("admin1_panel"))
 
 # ===============================================================
 # 🔵 12. Interface et routes upload Excel
@@ -1416,8 +1493,6 @@ body {
 </html>
 """
 
-
-
 @app.route("/admin/dashboard")
 @login_required
 def admin_dashboard():
@@ -1701,7 +1776,7 @@ def admin_fip_eleve():
 # 🔵 RÉSULTAT CALCUL FIP ÉLÈVE
 # ===============================================================
 @app.route("/admin/fip_eleve_result")
-@login_required
+#@login_required
 def admin_fip_eleve_result():
     matricule = request.args.get("matricule", "").strip()
     if not matricule:
@@ -1814,7 +1889,7 @@ hr {{
 
         <div class="actions">
             <a href="/admin/fip_eleve">Nouvelle recherche</a>
-            <a href="/admin/dashboard">Menu principal</a>
+            <a href="/admin1/panel">Menu principal</a>
         </div>
 
     </div>
@@ -1824,6 +1899,442 @@ hr {{
 </html>
 """
     return html
+
+#=================================
+#  ADMIN  PANEL 
+#===============================
+ADMIN1_PANEL_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Panel Administrateur</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: "Bookman Old Style", serif;
+    background: #f4f6fb;
+}
+
+.header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    position: relative;
+}
+
+.header h1 {
+    font-size: 48px;
+    color: #0d47a1;
+    margin: 0;
+}
+
+.header img {
+    position: absolute;
+    right: 30px;
+    height: 85px;
+}
+
+.band-blue { height: 20px; background: #0d47a1; }
+.band-red  { height: 20px; background: #c62828; }
+
+.marquee-box {
+    background: white;
+    padding: 12px;
+}
+
+marquee {
+    font-size: 24px;
+    color: #0d47a1;
+    font-weight: bold;
+}
+
+.panel {
+    width: 420px;
+    margin: 40px auto;
+    background: white;
+    padding: 30px;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    text-align: center;
+}
+
+.panel h2 {
+    margin-bottom: 20px;
+    color: #0d47a1;
+}
+
+.panel a {
+    display: block;
+    padding: 12px;
+    margin: 8px 0;
+    background: #1976d2;
+    color: white;
+    text-decoration: none;
+    border-radius: 8px;
+    transition: 0.3s;
+}
+
+.panel a:hover {
+    background: #0d47a1;
+}
+
+.footer-info {
+    margin: 40px auto;
+    width: 80%;
+    background: white;
+    padding: 25px;
+    border-radius: 14px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+    text-align: center;
+    font-size: 16px;
+}
+</style>
+</head>
+
+<!-- ================= MODALE AIDE ================= -->
+<div id="aideModal" style="
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.5);
+    z-index:999;
+">
+    <div style="
+        background:white;
+        width:420px;
+        margin:100px auto;
+        padding:25px;
+        border-radius:14px;
+        box-shadow:0 10px 30px rgba(0,0,0,0.25);
+        font-family:'Bookman Old Style', serif;
+    ">
+        <h3 style="color:#0d47a1;text-align:center;">
+            ❓ Comment consulter les frais d’un élève
+        </h3>
+
+        <p style="font-size:14px;line-height:1.6;">
+            Cette application permet de consulter les informations de paiement
+            des frais scolaires d’un élève en suivant les étapes ci-dessous :
+        </p>
+
+        <div style="
+            background:#e3f2fd;
+            padding:12px;
+            border-radius:10px;
+            font-size:14px;
+            line-height:1.8;
+        ">
+            <b>1.</b> Depuis le panel, cliquez sur <b>Gestion Élèves</b><br>
+            <b>2.</b> Vous arrivez sur la page <b> GESTION DES ELEVE</b><br>
+            <b>3.</b> Saisissez le <b>numéro de téléphone</b> parent ou de l’élève<br>
+            <b>4.</b> Cliquez sur le bouton <b>FIP ÉLÈVE</b><br>
+            <b>5.</b> Le système affiche le ou les <b>numéros matricules</b><br>
+            <b>6.</b> Cliquez sur le <b>numéro matricule</b><br>
+            <b>7.</b> Les <b>informations de paiement</b> s’affichent
+        </div>
+
+        <p style="font-size:13px;margin-top:12px;color:#444;">
+            ℹ️ Ce processus est entièrement public et ne nécessite pas
+            de connexion administrateur.
+        </p>
+
+        <button onclick="fermerAide()" style="
+            margin-top:15px;
+            width:100%;
+            padding:10px;
+            border:none;
+            border-radius:10px;
+            background:#1976d2;
+            color:white;
+            font-size:15px;
+            cursor:pointer;
+        ">
+            Fermer
+        </button>
+    </div>
+</div>
+<!-- ================= MODALE AIDE FIN ================= -->
+
+<!-- ================= JAVA SCRIPTS ================= -->
+<script>
+function ouvrirAide() {
+    document.getElementById("aideModal").style.display = "block";
+}
+
+function fermerAide() {
+    document.getElementById("aideModal").style.display = "none";
+}
+</script>
+
+<!-- ================= JAVA SCRIPTS FIN================= -->
+
+
+<body>
+
+<div class="header">
+    <h1>CS NSANGA LE THANZIE</h1>
+    <img src="/static/images/logo_csnst.png">
+</div>
+
+<div class="band-blue"></div>
+
+<div class="marquee-box">
+    <marquee>
+        Complexe Scolaire Nsanga le Thanzie : . Pour consulter les FIPs de vos élèves :Cliquez sur le bouton Gestion Élève. Saisissez votre numéro de téléphone. Validez votre saisie. Sélectionnez ensuite le PL ou le LT de l’élève concerné.Merci pour votre confiance.
+
+    </marquee>
+</div>
+
+<div class="band-red"></div>
+
+<div class="panel">
+    <h2>PANNEAU ADMIN</h2>
+
+    <a href="/admin/login">🔐 Connexion Administrateur</a>
+    <a href="/admin1/gestion_eleve">📊 Gestion Élèves</a>
+    <a href="#">📘 Journal Paiements</a>
+    <a href="#">📄 Rapports</a>
+    <a href="#">📅 Statistiques</a>
+    <a href="#">🧾 Comptabilité</a>
+    <a href="#">🖨️ Documents</a>
+    <a href="#">⚙️ Paramètres</a>
+    <a href="javascript:void(0)" onclick="ouvrirAide()">❓ Aide</a>
+
+</div>
+
+<div class="footer-info">
+    <b>Complexe Scolaire Nsanga le Thanzie</b><br>
+     165 Av : Kasangu croisement de l'Eglise–Q/Gambela2 - C/Lubumbashi - RDC <br>
+            Tél : +24397 477 37 60 - 
+       Email : serveurthanzie@gmail.com -
+  Facebook : Nsanga Thanzie - Youtube: nsanga le thanzie ecole
+           Site : csnsangalethanzie.org
+</div>
+
+</body>
+</html>
+"""
+
+@app.route("/admin1/panel")
+def admin1_panel():
+    return render_template_string(ADMIN1_PANEL_HTML)
+    
+    
+# ===============
+# GESTION ELEVES
+#================ 
+GESTION_ELEVE_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Gestion des Élèves</title>
+
+<style>
+body {
+    background: linear-gradient(135deg, #e3f2fd, #ffffff);
+    font-family: "Bookman Old Style", serif;
+}
+
+.box {
+    width: 480px;
+    margin: 80px auto;
+    background: white;
+    padding: 35px;
+    border-radius: 18px;
+    box-shadow: 0 12px 35px rgba(0,0,0,0.18);
+    text-align: center;
+}
+
+h2 { color: #0d47a1; }
+
+input {
+    width: 100%;
+    padding: 14px;
+    font-size: 15px;
+    border-radius: 10px;
+    border: 1px solid #ccc;
+    margin-bottom: 25px;
+}
+
+.btn-row {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-row button {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    cursor: pointer;
+    background: #1976d2;
+    color: white;
+}
+
+.btn-row button:hover {
+    background: #0d47a1;
+}
+
+.back {
+    margin-top: 18px;
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    border: none;
+    background: #c62828;
+    color: white;
+}
+
+/* MODAL */
+.modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+    background: white;
+    width: 380px;
+    margin: 120px auto;
+    padding: 25px;
+    border-radius: 14px;
+    text-align: center;
+}
+
+.matricule {
+    display: block;
+    padding: 10px;
+    margin: 8px 0;
+    background: #e3f2fd;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    text-decoration: none;
+    color: #000;
+}
+
+.matricule:hover {
+    background: #1976d2;
+    color: white;
+}
+</style>
+</head>
+
+<body>
+
+<div class="box">
+    <h2>GESTION DES ÉLÈVES</h2>
+
+    <input id="phoneInput" type="text" placeholder="Saisir numéro téléphone">
+
+    <div class="btn-row">
+        <button onclick="rechercherFipEleve()">FIP ÉLÈVE</button>
+        <button>COMPT.</button>
+        <button>ADM SYT</button>
+    </div>
+
+    <button class="back" onclick="location.href='/admin1/panel'">
+        ← RETOUR AU PANEL
+    </button>
+</div>
+
+<div class="modal" id="modal">
+    <div class="modal-content">
+        <h3>Choisir le matricule</h3>
+        <div id="listeMatricules"></div>
+        <br>
+        <button onclick="fermerModal()">Fermer</button>
+        
+    </div>
+</div>
+
+<script>
+function rechercherFipEleve() {
+    const phone = document.getElementById("phoneInput").value.trim();
+    if (!phone) {
+        alert("Veuillez saisir un numéro de téléphone");
+        return;
+    }
+
+    fetch("/admin1/find_matricules_by_phone?phone=" + encodeURIComponent(phone))
+        .then(res => res.json())
+        .then(data => {
+            const liste = document.getElementById("listeMatricules");
+            liste.innerHTML = "";
+
+            if (data.length === 0) {
+                liste.innerHTML = "<p style='color:red'>Aucun élève trouvé</p>";
+            } else {
+       data.forEach(m => {
+           liste.innerHTML += `
+               <a class="matricule"
+                  href="/admin/fip_eleve_result?matricule=${m}">
+                  ${m}
+               </a>
+         `;
+     });
+
+        }
+
+            document.getElementById("modal").style.display = "block";
+        })
+        .catch(() => alert("Erreur serveur"));
+}
+
+function fermerModal() {
+    document.getElementById("modal").style.display = "none";
+}
+</script>
+
+</body>
+</html>
+"""
+
+@app.route("/admin1/gestion_eleve")
+def gestion_eleve():
+   return render_template_string(GESTION_ELEVE_HTML)
+
+
+@app.route("/admin1/find_matricules_by_phone")
+def find_matricules_by_phone():
+    phone = request.args.get("phone", "").strip()
+    if not phone:
+        return jsonify([])
+
+    # Normalisation côté utilisateur
+    digits = "".join(c for c in phone if c.isdigit())
+    last9 = digits[-9:]
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT DISTINCT matricule
+        FROM eleves
+        WHERE
+        REPLACE(
+          REPLACE(
+            REPLACE(
+              REPLACE(
+                REPLACE(telephone, '+', ''),
+              ' ', ''),
+            '-', ''),
+          '/', ''),
+        ';', '')
+        LIKE ?
+    """, (f"%{last9}",))
+
+    result = [r[0] for r in cur.fetchall()]
+    conn.close()
+
+    return jsonify(result)
+
 
 #============================================================
 #  JOURNAL 
@@ -1853,24 +2364,18 @@ body {
 
 h2 { color: #0d47a1; }
 
-marquee {
-    color: #1565c0;
-    font-size: 14px;
-    margin: 20px 0;
-}
-
 input[type=date] {
-    padding: 10px;
+    padding: 12px;
     width: 70%;
-    font-size: 15px;
+    font-size: 16px;
     border-radius: 8px;
     border: 1px solid #ccc;
 }
 
 button {
-    margin-top: 20px;
-    padding: 12px 25px;
-    font-size: 15px;
+    margin-top: 25px;
+    padding: 12px 30px;
+    font-size: 16px;
     border: none;
     border-radius: 10px;
     background: #1976d2;
@@ -1893,8 +2398,6 @@ a {
 <div class="container">
     <h2>📘 JOURNAL DES PAIEMENTS</h2>
 
-    <marquee>Suivi journalier des paiements – Transparence & rigueur financière</marquee>
-
     <form method="GET" action="/admin/journal_result">
         <input type="date" name="date" required>
         <br>
@@ -1906,7 +2409,6 @@ a {
 </body>
 </html>
 """
-
 @app.route("/admin/journal")
 @login_required
 def admin_journal():
@@ -1916,19 +2418,10 @@ def admin_journal():
 @app.route("/admin/journal_result")
 @login_required
 def admin_journal_result():
-    date_iso = request.args.get("date", "")
+    date_iso = request.args.get("date")
+
     if not date_iso:
         return "Date manquante", 400
-
-    # date_iso = YYYY-MM-DD
-    try:
-        d = datetime.strptime(date_iso, "%Y-%m-%d")
-    except ValueError:
-        return "Format de date invalide", 400
-
-    # Générer plusieurs formats possibles
-    date_fr = d.strftime("%d/%m/%Y")      # 24/12/2025
-    date_iso_simple = d.strftime("%Y-%m-%d")  # 2025-12-24
 
     conn = sqlite3.connect(DB_PATH)
 
@@ -1940,27 +2433,16 @@ def admin_journal_result():
             e.section,
             p.mois,
             p.fip,
-            p.numrecu,
-            p.DatePaiement
+            p.numrecu
         FROM paiements p
         JOIN eleves e ON p.eleve_id = e.id
-        WHERE
-            p.DatePaiement LIKE ?
-            OR p.DatePaiement LIKE ?
-            OR p.DatePaiement LIKE ?
-    """, conn, params=(
-        f"%{date_iso_simple}%",
-        f"%{date_fr}%",
-        f"%{date_iso_simple.replace('-', '/') }%"
-    ))
+        WHERE DATE(p.DatePaiement) = ?
+    """, conn, params=(date_iso,))
 
     conn.close()
 
     if df.empty:
-        return f"""
-        <h3>Aucun paiement trouvé pour le {date_fr}</h3>
-        <a href='/admin/journal'>← Retour</a>
-        """
+        return f"<h3>Aucun paiement trouvé pour le {date_iso}</h3><a href='/admin/journal'>← Retour</a>"
 
     total_jour = df["fip"].sum()
 
@@ -1978,7 +2460,7 @@ def admin_journal_result():
         </tr>
         """
 
-    html = f"""
+    return f"""
     <html>
     <head>
     <style>
@@ -1988,7 +2470,6 @@ def admin_journal_result():
             margin:40px auto;
             border-collapse: collapse;
             background:white;
-            box-shadow:0 6px 20px rgba(0,0,0,0.15);
         }}
         th, td {{
             border:1px solid #ccc;
@@ -2008,7 +2489,7 @@ def admin_journal_result():
     <body>
 
     <h2 style="text-align:center;color:#0d47a1;">
-        Journal des paiements du {date_fr}
+        Journal du {date_iso}
     </h2>
 
     <table>
@@ -2023,9 +2504,7 @@ def admin_journal_result():
                 <th>Reçu</th>
             </tr>
         </thead>
-        <tbody>
-            {rows}
-        </tbody>
+        <tbody>{rows}</tbody>
         <tfoot>
             <tr>
                 <td colspan="5">TOTAL JOURNÉE</td>
@@ -2043,51 +2522,35 @@ def admin_journal_result():
     </html>
     """
 
-    return html
-
-
 @app.route("/api/journal_pdf/<date_iso>")
 @login_required
 def api_journal_pdf(date_iso):
-    d = datetime.strptime(date_iso, "%Y-%m-%d")
-    date_fr = d.strftime("%d/%m/%Y")
-
     conn = sqlite3.connect(DB_PATH)
 
     df = pd.read_sql_query("""
-        SELECT 
-            e.matricule, e.nom, e.classe, e.section,
-            p.mois, p.fip, p.numrecu, p.DatePaiement
+        SELECT e.matricule, e.nom, e.classe, p.mois, p.fip
         FROM paiements p
         JOIN eleves e ON p.eleve_id = e.id
-        WHERE
-            p.DatePaiement LIKE ?
-            OR p.DatePaiement LIKE ?
-    """, conn, params=(
-        f"%{date_iso}%",
-        f"%{date_fr}%"
-    ))
+        WHERE DATE(p.DatePaiement) = ?
+    """, conn, params=(date_iso,))
 
     conn.close()
 
     if df.empty:
         return "Aucune donnée", 404
 
-    total_jour = df["fip"].sum()
+    total = df["fip"].sum()
 
     file_path = f"journal_{date_iso}.pdf"
     c = canvas.Canvas(file_path, pagesize=A4)
     c.setFont("Helvetica", 9)
 
     y = 800
-    c.drawString(50, y, f"JOURNAL DES PAIEMENTS - {date_fr}")
+    c.drawString(50, y, f"JOURNAL DES PAIEMENTS - {date_iso}")
     y -= 25
 
     for _, r in df.iterrows():
-        c.drawString(
-            50, y,
-            f"{r['matricule']} | {r['nom']} | {r['classe']} | {r['mois']} | {r['fip']}"
-        )
+        c.drawString(50, y, f"{r['matricule']} | {r['nom']} | {r['classe']} | {r['mois']} | {r['fip']}")
         y -= 14
         if y < 60:
             c.showPage()
@@ -2095,11 +2558,10 @@ def api_journal_pdf(date_iso):
 
     y -= 20
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(50, y, f"TOTAL JOURNALIER : {total_jour}")
+    c.drawString(50, y, f"TOTAL JOURNALIER : {total}")
 
     c.save()
     return send_file(file_path, as_attachment=True)
-
 
 
 
