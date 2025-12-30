@@ -1660,13 +1660,18 @@ a{
 @login_required
 def admin_confirm_import():
     error = None
+
     if request.method == "POST":
-        pwd = request.form.get("password")
-        if pwd == ADMIN_PASSWORD:
+        pwd = request.form.get("password", "").strip()
+
+        # 🔐 mêmes mots de passe que /admin/login
+        if pwd in ADMIN_PASSWORDS:
             return redirect(url_for("admin_upload_form"))
         else:
             error = "❌ Mot de passe incorrect."
+
     return render_template_string(CONFIRM_IMPORT_HTML, error=error)
+
 
  # ===============================================================
 # 🔵 17. Calcul FIP par Élève (recherche matricule)
