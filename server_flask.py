@@ -2423,31 +2423,66 @@ def admin_journal():
 @app.route("/admin/journal_result")
 @login_required
 def admin_journal_result():
-    date_iso = request.args.get("date")
+    date_input = request.args.get("date")
 
-    if not date_iso:
+    if not date_input:
         return "Date manquante", 400
+
+    # Date cible (YYYY-MM-DD venant du formulaire)
+    date_cible = pd.to_datetime(date_input, errors="coerce").date()
+    if pd.isna(date_cible):
+        return "Date invalide", 400
 
     conn = sqlite3.connect(DB_PATH)
 
+    # 🔹 On charge toutes les données sans filtrer
     df = pd.read_sql_query("""
-        SELECT 
-            e.matricule,
-            e.nom,
-            e.classe,
-            e.section,
-            p.mois,
-            p.fip,
-            p.numrecu
-        FROM paiements p
-        JOIN eleves e ON p.eleve_id = e.id
-        WHERE DATE(p.DatePaiement) = ?
-    """, conn, params=(date_iso,))
+    SELECT 
+        e.matricule,
+        e.nom,
+        e.classe,
+        e.section,
+        p.mois,
+        p.fip,
+        p.numrecu,
+        p.DatePaiement
+    FROM paiements p
+    JOIN eleves e ON p.eleve_id = e.id
+""", conn)
 
     conn.close()
 
+    # 🔹 Détection automatique de la colonne date
+    date_col = None
+    for col in df.columns:
+        if "date" in col.lower():
+            date_col = col
+            break
+
+    if not date_col:
+        return "❌ Colonne de date introuvable dans la table paiements", 500
+
+    # 🔹 Normalisation robuste des dates
+    def normalize_date(val):
+        try:
+            return pd.to_datetime(val, dayfirst=True, errors="coerce").date()
+        except:
+            return None
+
+    df["date_norm"] = df[date_col].apply(normalize_date)
+
+    # 🔹 Filtrage correct
+    df = df[df["date_norm"] == date_cible]
+
     if df.empty:
-        return f"<h3>Aucun paiement trouvé pour le {date_iso}</h3><a href='/admin/journal'>← Retour</a>"
+        return f"""
+        <h3 style="text-align:center;color:#c62828;">
+            Aucun paiement trouvé pour le {date_input}
+        </h3>
+        <div style="text-align:center;">
+            <a href="/admin/journal">← Retour</a>
+        </div>
+        """
 
     total_jour = df["fip"].sum()
 
@@ -2466,36 +2501,32 @@ def admin_journal_result():
         """
 
     return f"""
-    <html>
+    <!DOCTYPE html>
+    <html lang="fr">
     <head>
-    <style>
-        body {{ font-family: "Bookman Old Style"; background:#f4f8ff; }}
-        table {{
-            width:90%;
-            margin:40px auto;
-            border-collapse: collapse;
-            background:white;
-        }}
-        th, td {{
-            border:1px solid #ccc;
-            padding:10px;
-            text-align:center;
-        }}
-        th {{
-            background:#1976d2;
-            color:white;
-        }}
-        tfoot td {{
-            font-weight:bold;
-            background:#e3f2fd;
-        }}
-    </style>
+        <meta charset="UTF-8">
+        <title>Journal du {date_input}</title>
+        <style>
+            body {{ font-family:"Bookman Old Style"; background:#f4f8ff; }}
+            table {{
+                width:90%;
+                margin:40px auto;
+                border-collapse: collapse;
+                background:white;
+            }}
+            th, td {{
+                border:1px solid #ccc;
+                padding:10px;
+                text-align:center;
+            }}
+            th {{ background:#1976d2; color:white; }}
+            tfoot td {{ font-weight:bold; background:#e3f2fd; }}
+            h2 {{ text-align:center; color:#0d47a1; }}
+        </style>
     </head>
     <body>
 
-    <h2 style="text-align:center;color:#0d47a1;">
-        Journal du {date_iso}
-    </h2>
+    <h2>📘 Journal des paiements du {date_input}</h2>
 
     <table>
         <thead>
@@ -2519,13 +2550,14 @@ def admin_journal_result():
     </table>
 
     <div style="text-align:center;">
-        <a href="/api/journal_pdf/{date_iso}">📄 Télécharger PDF</a> |
         <a href="/admin/journal">← Retour</a>
     </div>
 
     </body>
     </html>
     """
+
+
 
 @app.route("/api/journal_pdf/<date_iso>")
 @login_required
