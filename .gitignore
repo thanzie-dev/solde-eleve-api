@@ -53,6 +53,7 @@ temp/
 # ===============================
 ~$*.xlsx
 ~$*.xls
+*.xlsx
 
 # fichiers temporaires / tests
 *.pdf
