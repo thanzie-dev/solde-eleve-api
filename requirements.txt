@@ -1,11 +1,15 @@
 Flask==3.0.0
-pandas==2.2.3
-numpy==2.0.0
+gunicorn==23.0.0
+
+# Versions STABLES compatibles Render
+numpy==1.26.4
+pandas==2.1.4
+
 python-dateutil
 openpyxl
 reportlab
-gunicorn
 psycopg2-binary
+
 
 
 
