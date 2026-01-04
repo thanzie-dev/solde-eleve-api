@@ -18,12 +18,23 @@ from functools import wraps
 import os
 import re
 import pandas as pd
-import sqlite3          # ✅ OBLIGATOIRE
 import psycopg2         # ✅ OBLIGATOIRE
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-import import_excel
+import import_excel_pg as import_excel
+import psycopg2.extras
+
+
+from reportlab.platypus import (
+    SimpleDocTemplate, Table, TableStyle,
+    Paragraph, Image, Spacer
+)
+from reportlab.lib import colors
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import cm
+
+
 
 
 # ===============================================================
@@ -35,10 +46,15 @@ app = Flask(__name__)
 # 🔐 Clé de session (Render-safe)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "BJ2KEL24")
 
-# ⚠️ Conservé pour compatibilité logique (SQLite local éventuel)
-DB_PATH = "thz.db"
+ADMIN_PASSWORDS = [
+    pwd.strip()
+    for pwd in os.environ.get("ADMIN_PASSWORDS", "").split(",")
+    if pwd.strip()
+]
+# mots de passe admin
 
-ADMIN_PASSWORDS = ["1971celeste", "ILST26"]  # mots de passe admin
+
+
 
 # Mois officiels
 MOIS_SCOLAIRE = [
@@ -63,17 +79,14 @@ def login_required(f):
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_db_connection():
-    if DATABASE_URL:
-        conn = psycopg2.connect(
-            DATABASE_URL,
-            cursor_factory=psycopg2.extras.RealDictCursor
-        )
-        conn.autocommit = True
-        return conn
-    else:
-        return sqlite3.connect(DB_PATH)
+    if not DATABASE_URL:
+        raise RuntimeError("❌ DATABASE_URL manquant : PostgreSQL requis")
 
-
+    return psycopg2.connect(
+        DATABASE_URL,
+        sslmode="require"
+ 
+    )
 
 
 
@@ -83,15 +96,24 @@ def get_db_connection():
 def get_fip_par_classe(classe):
     if not classe:
         return 0
-    c = str(classe).strip().replace("°", "").upper()
+
+    # 🔹 Normalisation robuste (Excel sale, caractères invisibles)
+    c = str(classe).upper()
+    c = re.sub(r"[^A-Z0-9]", "", c)
+
     groupe_40 = ["1M", "2M", "3M", "1P", "2P", "3P", "4P", "5P", "6P"]
-    groupe_45 = ["7EB", "8EB", "1HP", "1LIT", "1SC",
-                 "2HP", "2LIT", "2SC",
-                 "3HP", "3LIT", "3SC"]
-    groupe_55 = ["1CG", "1MG", "1TCC", "1EL", "1ELECTRO", "1CONST",
-                 "2CG", "2MG", "2TCC", "2EL",
-                 "3CG", "3MG", "3TCC", "3EL"]
-    groupe_80 = ["4CG", "4MG", "4TCC", "4EL","4HP","4SC","4LIT"]
+    groupe_45 = [
+        "7EB", "8EB",
+        "1HP", "1LIT", "1SC",
+        "2HP", "2LIT", "2SC",
+        "3HP", "3LIT", "3SC"
+    ]
+    groupe_55 = [
+        "1CG", "1MG", "1TCC", "1EL", "1ELECTRO", "1CONST",
+        "2CG", "2MG", "2TCC", "2EL",
+        "3CG", "3MG", "3TCC", "3EL"
+    ]
+    groupe_80 = ["4CG", "4MG", "4TCC", "4EL", "4HP", "4SC", "4LIT"]
 
     if c in groupe_40:
         return 40
@@ -101,7 +123,9 @@ def get_fip_par_classe(classe):
         return 55
     elif c in groupe_80:
         return 80
-    return 0
+    else:
+        return 0
+
 
 # ===============================================================
 # 🔵 2. Normalisation des mois
@@ -141,12 +165,14 @@ def canonical_month(m_raw):
 # ===============================================================
 def calcul_fip_eleve(matricule: str, conn):
 
-    # ---- Élève ----
-    query_eleve = (
-        "SELECT * FROM eleves WHERE LOWER(matricule)=LOWER(%s)"
-        if DATABASE_URL
-        else "SELECT * FROM eleves WHERE LOWER(matricule)=LOWER(?)"
-    )
+    # ==========================================================
+    # 1️⃣ RÉCUPÉRATION DE L'ÉLÈVE
+    # ==========================================================
+    query_eleve = """
+        SELECT *
+        FROM eleves
+        WHERE LOWER(matricule) = LOWER(%s)
+    """
 
     eleve_df = pd.read_sql_query(query_eleve, conn, params=(matricule,))
 
@@ -154,40 +180,45 @@ def calcul_fip_eleve(matricule: str, conn):
         return None
 
     eleve = eleve_df.iloc[0].to_dict()
-    nom = eleve.get("nom") or eleve.get("nom_postnom") or "Non renseigné"
-    classe = eleve.get("classe", "")
+
+    matricule = eleve["matricule"]
+    nom = eleve["nom"]
+    sexe = eleve["sexe"]
+    classe = eleve["classe"]
+    section = eleve["section"]
+    categorie = eleve["categorie"]
+    telephone = eleve["telephone"]
+
+    # ==========================================================
+    # 2️⃣ CALCUL FIP ATTENDU
+    # ==========================================================
     fip_mensuel = get_fip_par_classe(classe)
     total_attendu = fip_mensuel * len(MOIS_SCOLAIRE)
 
-    # ---- Paiements ----
-    query_paiements = (
-        """
-        SELECT mois, fip, numrecu
+    # ==========================================================
+    # 3️⃣ RÉCUPÉRATION DES PAIEMENTS
+    # ==========================================================
+    query_paiements = """
+        SELECT p.mois, p.fip, p.numrecu
         FROM paiements p
         JOIN eleves e ON p.eleve_id = e.id
-        WHERE LOWER(e.matricule)=LOWER(%s)
-        """
-        if DATABASE_URL
-        else
-        """
-        SELECT mois, fip, numrecu
-        FROM paiements p
-        JOIN eleves e ON p.eleve_id = e.id
-        WHERE LOWER(e.matricule)=LOWER(?)
-        """
-    )
+        WHERE LOWER(e.matricule) = LOWER(%s)
+    """
 
     pay_df = pd.read_sql_query(query_paiements, conn, params=(matricule,))
 
+    # ==========================================================
+    # 4️⃣ AUCUN PAIEMENT
+    # ==========================================================
     if pay_df.empty:
         return {
             "nom": nom,
             "matricule": matricule,
-            "sexe": eleve.get("sexe", ""),
+            "sexe": sexe,
             "classe": classe,
-            "section": eleve.get("section", ""),
-            "categorie": eleve.get("categorie", ""),
-            "telephone": eleve.get("telephone", ""),
+            "section": section,
+            "categorie": categorie,
+            "telephone": telephone,
             "fip_mensuel": fip_mensuel,
             "fip_total": 0.0,
             "total_attendu_fip": total_attendu,
@@ -196,11 +227,18 @@ def calcul_fip_eleve(matricule: str, conn):
             "mois_non_payes": MOIS_SCOLAIRE
         }
 
-    # ---- Traitement FIP ----
+    # ==========================================================
+    # 5️⃣ TRAITEMENT DES PAIEMENTS
+    # ==========================================================
     pay_df = pay_df.drop_duplicates(subset=["numrecu"], keep="first")
+
     pay_df["mois_norm"] = pay_df["mois"].apply(canonical_month)
     pay_df["fip"] = pd.to_numeric(pay_df["fip"], errors="coerce").fillna(0)
-    pay_df = pay_df[pay_df["mois_norm"].notna() & (pay_df["fip"] > 0)]
+
+    pay_df = pay_df[
+        (pay_df["mois_norm"].notna()) &
+        (pay_df["fip"] > 0)
+    ]
 
     pay_group = pay_df.groupby("mois_norm")["fip"].sum().to_dict()
 
@@ -210,22 +248,29 @@ def calcul_fip_eleve(matricule: str, conn):
 
     for m in MOIS_SCOLAIRE:
         montant = float(pay_group.get(m, 0))
+
         if montant == 0:
             mois_non_payes.append(m)
         else:
             total_paye += montant
-            mois_payes.append(m if montant >= fip_mensuel else f"Ac.{m}")
+            if montant >= fip_mensuel:
+                mois_payes.append(m)
+            else:
+                mois_payes.append(f"Ac.{m}")
 
     solde_fip = total_attendu - total_paye
 
+    # ==========================================================
+    # 6️⃣ RÉSULTAT FINAL
+    # ==========================================================
     return {
         "nom": nom,
         "matricule": matricule,
-        "sexe": eleve.get("sexe", ""),
+        "sexe": sexe,
         "classe": classe,
-        "section": eleve.get("section", ""),
-        "categorie": eleve.get("categorie", ""),
-        "telephone": eleve.get("telephone", ""),
+        "section": section,
+        "categorie": categorie,
+        "telephone": telephone,
         "fip_mensuel": fip_mensuel,
         "fip_total": round(total_paye, 2),
         "total_attendu_fip": total_attendu,
@@ -233,7 +278,6 @@ def calcul_fip_eleve(matricule: str, conn):
         "mois_payes": mois_payes,
         "mois_non_payes": mois_non_payes
     }
-
 
 # ===============================================================
 # 🔵 3bis. Fonctions utilitaires pour FIP par section et par mois
@@ -341,19 +385,38 @@ def api_eleve(matricule):
     conn = None
     try:
         conn = get_db_connection()
-        data = calcul_fip_eleve(matricule, conn)
 
-        if data is None:
-            return jsonify({"error": f"Aucun élève trouvé pour {matricule}"}), 404
+        # 🔴 TEST DIRECT BASE (SANS calcul_fip_eleve)
+        query = """
+            SELECT
+                matricule,
+                nom,
+                sexe,
+                classe,
+                section,
+                categorie,
+                telephone
+            FROM eleves
+            WHERE LOWER(matricule) = LOWER(%s)
+        """
 
-        return jsonify(data)
+        df = pd.read_sql_query(query, conn, params=(matricule,))
+
+        if df.empty:
+            return jsonify({"error": "Élève introuvable"}), 404
+
+        # 🔥 ON RENVOIE CE QUE LA BASE CONTIENT, BRUT
+        return jsonify(df.iloc[0].to_dict()), 200
 
     except Exception as e:
+        print("❌ ERREUR TEST BRUT :", e)
         return jsonify({"error": str(e)}), 500
 
     finally:
         if conn:
             conn.close()
+
+
 
 
 @app.route("/api/mobile/eleve/<matricule>")
@@ -1647,88 +1710,162 @@ def admin_dashboard():
     return render_template_string(DASHBOARD_HTML)
 
 
+
+
 @app.route("/api/rapport_classe/<classe>")
 @login_required
 def rapport_pdf_classe(classe):
 
     type_pdf = request.args.get("type", "paye")
     conn = get_db_connection()
-    cur = conn.cursor()
 
     # ===============================
-    # 1️⃣ LISTE DES ÉLÈVES DE LA CLASSE
+    # 1️⃣ DONNÉES
     # ===============================
-    query = (
-        """
-        SELECT matricule, nom, categorie
+    query = """
+        SELECT matricule, nom
         FROM eleves
-        WHERE classe = %s
+        WHERE LOWER(classe) = LOWER(%s)
         ORDER BY nom
-        """
-        if DATABASE_URL
-        else
-        """
-        SELECT matricule, nom, categorie
-        FROM eleves
-        WHERE classe = ?
-        ORDER BY nom
-        """
-    )
+    """
+    df = pd.read_sql_query(query, conn, params=(classe,))
 
-    cur.execute(query, (classe,))
-    eleves = cur.fetchall()
-
-    if not eleves:
+    if df.empty:
         conn.close()
         return f"Aucun élève trouvé pour la classe {classe}", 404
 
     lignes = []
-
-    for matricule, nom, categorie in eleves:
-        data = calcul_fip_eleve(matricule, conn)
-
-        if type_pdf == "impaye":
-            valeur = ", ".join(data["mois_non_payes"])
-        else:
-            valeur = data["fip_total"]
-
-        lignes.append((matricule, nom, valeur))
+    for _, row in df.iterrows():
+        data = calcul_fip_eleve(row["matricule"], conn)
+        valeur = (
+            ", ".join(data["mois_non_payes"])
+            if type_pdf == "impaye"
+            else str(data["fip_total"])
+        )
+        lignes.append([row["matricule"], row["nom"], valeur])
 
     conn.close()
 
     # ===============================
-    # 2️⃣ GÉNÉRATION PDF
+    # 2️⃣ PDF
     # ===============================
     os.makedirs("temp", exist_ok=True)
-    nom_pdf = f"rapport_{classe}_{type_pdf}.pdf"
-    chemin = os.path.join("temp", nom_pdf)
+    path = os.path.join("temp", f"rapport_{classe}_{type_pdf}.pdf")
 
-    c = canvas.Canvas(chemin, pagesize=A4)
-    largeur, hauteur = A4
+    doc = SimpleDocTemplate(
+        path,
+        pagesize=A4,
+        rightMargin=2*cm,
+        leftMargin=2*cm,
+        topMargin=2*cm,
+        bottomMargin=2*cm
+    )
 
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(40, hauteur - 40, f"RAPPORT CLASSE : {classe}")
+    elements = []
 
-    titre = "MONTANTS PAYÉS" if type_pdf == "paye" else "MOIS NON PAYÉS"
-    c.setFont("Helvetica", 11)
-    c.drawString(40, hauteur - 70, f"Type : {titre}")
+    # ===============================
+    # 3️⃣ LOGO
+    # ===============================
+    logo_path = "static/images/logo_csnst.png"
+    if os.path.exists(logo_path):
+        logo = Image(logo_path, 2.5*cm, 2.5*cm)
+        logo.hAlign = "LEFT"
+        elements.append(logo)
 
-    y = hauteur - 110
-    c.setFont("Helvetica", 9)
+    # ===============================
+    # 4️⃣ TITRES
+    # ===============================
+    elements.append(Paragraph(
+        "<b>COMPLEXE SCOLAIRE NSANGA LE THANZIE</b>",
+        ParagraphStyle(
+            "title",
+            fontName="Times-Roman",
+            fontSize=14,
+            alignment=1
+        )
+    ))
 
-    for m, nom, val in lignes:
-        if y < 60:
-            c.showPage()
-            c.setFont("Helvetica", 9)
-            y = hauteur - 50
+    elements.append(Paragraph(
+        "Adresse : 165 Av. Kasangulu, Q/Gambela 2, C/Lubumbashi – RDC",
+        ParagraphStyle(
+            "addr",
+            fontName="Times-Roman",
+            fontSize=10,
+            alignment=1
+        )
+    ))
 
-        c.drawString(40, y, m)
-        c.drawString(120, y, nom[:30])
-        c.drawString(350, y, str(val))
-        y -= 14
+    elements.append(Spacer(1, 0.4*cm))
 
-    c.save()
-    return send_file(chemin, as_attachment=True)
+    titre = (
+        "RAPPORT DES MONTANTS PAYÉS"
+        if type_pdf == "paye"
+        else "RAPPORT DES MOIS NON PAYÉS"
+    )
+
+    elements.append(Paragraph(
+        f"{titre} – Classe : {classe}",
+        ParagraphStyle(
+            "subtitle",
+            fontName="Times-Roman",
+            fontSize=12,
+            alignment=0
+        )
+    ))
+
+    elements.append(Spacer(1, 1.5*cm))
+
+    # ===============================
+    # 5️⃣ TABLEAU
+    # ===============================
+    table_data = [["Matricule", "Nom de l'élève", "Valeur"]] + lignes
+
+    table = Table(
+        table_data,
+        colWidths=[2.5*cm, 6*cm, 7.5*cm]
+    )
+
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 1, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("FONT", (0, 0), (-1, -1), "Times-Roman"),
+        ("FONTSIZE", (0, 0), (-1, -1), 12),
+        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+
+    elements.append(table)
+
+    # ===============================
+    # 6️⃣ BAS DE PAGE
+    # ===============================
+    elements.append(Spacer(1, 1*cm))
+
+    elements.append(Paragraph(
+        "Document généré par le service de comptabilité du<br/>"
+        "Complexe Scolaire Nsanga le Thanzie",
+        ParagraphStyle(
+            "footer",
+            fontName="Times-Roman",
+            fontSize=10,
+            alignment=1
+        )
+    ))
+
+    elements.append(Paragraph(
+        f"Date : {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+        ParagraphStyle(
+            "footer2",
+            fontName="Times-Roman",
+            fontSize=10,
+            alignment=1
+        )
+    ))
+
+    doc.build(elements)
+
+    return send_file(path, as_attachment=True)
+
 
     
  #==========================================
@@ -1938,13 +2075,13 @@ def admin_fip_eleve():
 # 🔵 RÉSULTAT CALCUL FIP ÉLÈVE
 # ===============================================================
 @app.route("/admin/fip_eleve_result")
-#@login_required
+@login_required
 def admin_fip_eleve_result():
     matricule = request.args.get("matricule", "").strip()
     if not matricule:
         return "Matricule manquant", 400
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     data = calcul_fip_eleve(matricule, conn)
     conn.close()
 
@@ -2603,54 +2740,40 @@ def admin_journal():
 @login_required
 def admin_journal_result():
     date_input = request.args.get("date")
-
     if not date_input:
         return "Date manquante", 400
 
-    # Date cible (YYYY-MM-DD venant du formulaire)
+    # date venant du formulaire (YYYY-MM-DD)
     date_cible = pd.to_datetime(date_input, errors="coerce").date()
     if pd.isna(date_cible):
         return "Date invalide", 400
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
 
-    # 🔹 On charge toutes les données sans filtrer
+    # ⚠️ COLONNE CORRECTE : datepaiement
     df = pd.read_sql_query("""
-    SELECT 
-        e.matricule,
-        e.nom,
-        e.classe,
-        e.section,
-        p.mois,
-        p.fip,
-        p.numrecu,
-        p.DatePaiement
-    FROM paiements p
-    JOIN eleves e ON p.eleve_id = e.id
-""", conn)
+        SELECT
+            e.matricule,
+            e.nom,
+            e.classe,
+            e.section,
+            p.mois,
+            p.fip,
+            p.numrecu,
+            p.datepaiement
+        FROM paiements p
+        JOIN eleves e ON p.eleve_id = e.id
+    """, conn)
 
     conn.close()
 
-    # 🔹 Détection automatique de la colonne date
-    date_col = None
-    for col in df.columns:
-        if "date" in col.lower():
-            date_col = col
-            break
+    # conversion robuste
+    df["date_norm"] = pd.to_datetime(
+        df["datepaiement"],
+        errors="coerce"
+    ).dt.date
 
-    if not date_col:
-        return "❌ Colonne de date introuvable dans la table paiements", 500
-
-    # 🔹 Normalisation robuste des dates
-    def normalize_date(val):
-        try:
-            return pd.to_datetime(val, dayfirst=True, errors="coerce").date()
-        except:
-            return None
-
-    df["date_norm"] = df[date_col].apply(normalize_date)
-
-    # 🔹 Filtrage correct
+    # filtrage
     df = df[df["date_norm"] == date_cible]
 
     if df.empty:
@@ -2684,7 +2807,7 @@ def admin_journal_result():
     <html lang="fr">
     <head>
         <meta charset="UTF-8">
-        <title>Journal du {date_input}</title>
+        <title>Journal des paiements du {date_input}</title>
         <style>
             body {{ font-family:"Bookman Old Style"; background:#f4f8ff; }}
             table {{
@@ -2737,6 +2860,7 @@ def admin_journal_result():
     """
 
 
+
 @app.route("/api/journal_pdf/<date_iso>")
 @login_required
 def api_journal_pdf(date_iso):
@@ -2747,7 +2871,10 @@ def api_journal_pdf(date_iso):
         SELECT e.matricule, e.nom, e.classe, p.mois, p.fip
         FROM paiements p
         JOIN eleves e ON p.eleve_id = e.id
-        WHERE p.DatePaiement::date = %s
+       
+        WHERE p.datepaiement = %s
+
+
         """
         if DATABASE_URL
         else
@@ -2802,6 +2929,9 @@ def api_journal_pdf(date_iso):
 # ===============================================================
 if __name__ == "__main__":
     print("🚀 API en mode LOCAL : http://127.0.0.1:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    debug = not DATABASE_URL
+    app.run(host="0.0.0.0", port=5000, debug=debug)
+
+
 
 
