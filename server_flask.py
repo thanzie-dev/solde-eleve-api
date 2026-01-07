@@ -22,7 +22,7 @@ try:
 except ImportError:
     pd = None
 
-import psycopg2         # ✅ OBLIGATOIRE
+import psycopg        # ✅ OBLIGATOIRE
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -84,7 +84,7 @@ def get_db_connection():
     if not DATABASE_URL:
         raise RuntimeError("❌ DATABASE_URL manquant")
 
-    return psycopg2.connect(
+    return psycopg.connect(
         DATABASE_URL,
         sslmode="require" if "render.com" in DATABASE_URL else "disable"
     )
@@ -2613,7 +2613,8 @@ def find_matricules_by_phone():
     last9 = digits[-9:]
 
     conn = get_db_connection()
-    cur = conn.cursor()
+    cur = conn.cursor(row_factory=psycopg.rows.dict_row)
+
 
     query = (
         """
