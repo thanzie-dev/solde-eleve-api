@@ -178,61 +178,58 @@ def canonical_month(m_raw):
 # 🔵 3. Calcul FIP pour un élève
 # ===============================================================
 def calcul_fip_eleve(matricule: str, conn):
+    cur = conn.cursor()
 
-    # ==========================================================
-    # 1️⃣ RÉCUPÉRATION DE L'ÉLÈVE
-    # ==========================================================
-    query_eleve = """
-        SELECT *
+    # ===============================
+    # 1. Récupération élève
+    # ===============================
+    cur.execute("""
+        SELECT
+            id,
+            matricule,
+            nom,
+            sexe,
+            classe,
+            section,
+            categorie,
+            telephone
         FROM eleves
         WHERE LOWER(matricule) = LOWER(%s)
-    """
+        LIMIT 1
+    """, (matricule,))
 
-    eleve_df = pd.read_sql_query(query_eleve, conn, params=(matricule,))
-
-    if eleve_df.empty:
+    row = cur.fetchone()
+    if not row:
         return None
 
-    eleve = eleve_df.iloc[0].to_dict()
+    eleve_id, matricule, nom, sexe, classe, section, categorie, telephone = row
 
-    matricule = eleve["matricule"]
-    nom = eleve["nom"]
-    sexe = eleve["sexe"]
-    classe = eleve["classe"]
-    section = eleve["section"]
-    categorie = eleve["categorie"]
-    telephone = eleve["telephone"]
-
-    # ==========================================================
-    # 2️⃣ CALCUL FIP ATTENDU
-    # ==========================================================
     fip_mensuel = get_fip_par_classe(classe)
     total_attendu = fip_mensuel * len(MOIS_SCOLAIRE)
 
-    # ==========================================================
-    # 3️⃣ RÉCUPÉRATION DES PAIEMENTS
-    # ==========================================================
-    query_paiements = """
-        SELECT p.mois, p.fip, p.numrecu
-        FROM paiements p
-        JOIN eleves e ON p.eleve_id = e.id
-        WHERE LOWER(e.matricule) = LOWER(%s)
-    """
+    # ===============================
+    # 2. Paiements élève
+    # ===============================
+    cur.execute("""
+        SELECT
+            mois,
+            COALESCE(fip, 0),
+            numrecu
+        FROM paiements
+        WHERE eleve_id = %s
+    """, (eleve_id,))
 
-    pay_df = pd.read_sql_query(query_paiements, conn, params=(matricule,))
+    rows = cur.fetchall()
 
-    # ==========================================================
-    # 4️⃣ AUCUN PAIEMENT
-    # ==========================================================
-    if pay_df.empty:
+    if not rows:
         return {
             "nom": nom,
             "matricule": matricule,
-            "sexe": sexe,
-            "classe": classe,
-            "section": section,
-            "categorie": categorie,
-            "telephone": telephone,
+            "sexe": sexe or "",
+            "classe": classe or "",
+            "section": section or "",
+            "categorie": categorie or "",
+            "telephone": telephone or "",
             "fip_mensuel": fip_mensuel,
             "fip_total": 0.0,
             "total_attendu_fip": total_attendu,
@@ -241,50 +238,51 @@ def calcul_fip_eleve(matricule: str, conn):
             "mois_non_payes": MOIS_SCOLAIRE
         }
 
-    # ==========================================================
-    # 5️⃣ TRAITEMENT DES PAIEMENTS
-    # ==========================================================
-    pay_df = pay_df.drop_duplicates(subset=["numrecu"], keep="first")
+    # ===============================
+    # 3. Normalisation + agrégation
+    # ===============================
+    paiements = {}
+    recus_vus = set()
 
-    pay_df["mois_norm"] = pay_df["mois"].apply(canonical_month)
-    pay_df["fip"] = pd.to_numeric(pay_df["fip"], errors="coerce").fillna(0)
+    for mois, fip, numrecu in rows:
+        if not numrecu or numrecu in recus_vus:
+            continue
+        recus_vus.add(numrecu)
 
-    pay_df = pay_df[
-        (pay_df["mois_norm"].notna()) &
-        (pay_df["fip"] > 0)
-    ]
+        mois_norm = canonical_month(mois)
+        if not mois_norm or fip <= 0:
+            continue
 
-    pay_group = pay_df.groupby("mois_norm")["fip"].sum().to_dict()
+        paiements[mois_norm] = paiements.get(mois_norm, 0) + float(fip)
 
+    # ===============================
+    # 4. Calculs finaux
+    # ===============================
     mois_payes = []
     mois_non_payes = []
     total_paye = 0.0
 
     for m in MOIS_SCOLAIRE:
-        montant = float(pay_group.get(m, 0))
-
+        montant = paiements.get(m, 0.0)
         if montant == 0:
             mois_non_payes.append(m)
         else:
             total_paye += montant
-            if montant >= fip_mensuel:
-                mois_payes.append(m)
-            else:
+            if montant < fip_mensuel:
                 mois_payes.append(f"Ac.{m}")
+            else:
+                mois_payes.append(m)
 
     solde_fip = total_attendu - total_paye
 
-    # ==========================================================
-    # 6️⃣ RÉSULTAT FINAL
-    # ==========================================================
     return {
         "nom": nom,
         "matricule": matricule,
-        "sexe": sexe,
-        "classe": classe,
-        "section": section,
-        "categorie": categorie,
-        "telephone": telephone,
+        "sexe": sexe or "",
+        "classe": classe or "",
+        "section": section or "",
+        "categorie": categorie or "",
+        "telephone": telephone or "",
         "fip_mensuel": fip_mensuel,
         "fip_total": round(total_paye, 2),
         "total_attendu_fip": total_attendu,
@@ -425,8 +423,6 @@ def api_eleve(matricule):
     except Exception as e:
         print("❌ ERREUR API ELEVE :", e)
         return jsonify({"error": str(e)}), 500
-
-
 
 
 
@@ -2073,10 +2069,6 @@ def admin_fip_eleve():
 #==============================================
 #RESULTAT ELEVE (Recherche par Numéro Matricule
 #============================================== 
-
-# ===============================================================
-# 🔵 RÉSULTAT CALCUL FIP ÉLÈVE
-# ===============================================================
 @app.route("/admin/fip_eleve_result")
 @login_required
 def admin_fip_eleve_result():
@@ -2088,9 +2080,12 @@ def admin_fip_eleve_result():
         with psycopg.connect(DATABASE_URL) as conn:
             with conn.cursor(row_factory=dict_row) as cur:
 
-                # 🔹 Infos élève
+                # =================================================
+                # 1️⃣ RÉCUPÉRATION DES INFOS ÉLÈVE
+                # =================================================
                 cur.execute("""
                     SELECT
+                        id,
                         matricule,
                         nom,
                         sexe,
@@ -2100,44 +2095,71 @@ def admin_fip_eleve_result():
                         telephone
                     FROM eleves
                     WHERE LOWER(matricule) = LOWER(%s)
+                    LIMIT 1
                 """, (matricule,))
-                eleve = cur.fetchone()
 
+                eleve = cur.fetchone()
                 if not eleve:
                     return "Élève introuvable", 404
 
-                # 🔹 Paiements FIP
+                eleve_id = eleve["id"]
+
+                # =================================================
+                # 2️⃣ RÉCUPÉRATION DES PAIEMENTS (CORRIGÉ)
+                # =================================================
                 cur.execute("""
-                    SELECT mois, fip
+                    SELECT
+                        mois,
+                        COALESCE(fip, 0) AS fip
                     FROM paiements
-                    WHERE matricule = %s
+                    WHERE eleve_id = %s
                     ORDER BY datepaiement
-                """, (eleve["matricule"],))
+                """, (eleve_id,))
+
                 paiements = cur.fetchall()
 
-        # 🔹 Calculs
-        fip_total = sum(p["fip"] for p in paiements)
-        fip_mensuel = paiements[0]["fip"] if paiements else 0
+        # =================================================
+        # 3️⃣ CALCULS FIP (LOGIQUE CORRECTE)
+        # =================================================
+        fip_mensuel = get_fip_par_classe(eleve["classe"])
+        total_attendu = fip_mensuel * len(MOIS_SCOLAIRE)
 
-        mois_payes = [p["mois"] for p in paiements]
+        mois_payes = []
+        total_paye = 0.0
 
-        MOIS_SCOLAIRE = [
-            "Sept", "Oct", "Nov", "Dec", "Janv", "Fevr",
-            "Mars", "Avr", "Mai", "Juin", "Juil"
-        ]
+        for p in paiements:
+            mois = canonical_month(p["mois"])
+            montant = float(p["fip"] or 0)
 
-        mois_non_payes = [m for m in MOIS_SCOLAIRE if m not in mois_payes]
-        solde_fip = fip_mensuel * len(mois_non_payes)
+            if mois and montant > 0:
+                total_paye += montant
+                if montant < fip_mensuel:
+                    mois_payes.append(f"Ac.{mois}")
+                else:
+                    mois_payes.append(mois)
+
+        mois_payes = list(dict.fromkeys(mois_payes))  # supprime doublons
+        mois_non_payes = [m for m in MOIS_SCOLAIRE if m not in [mp.replace("Ac.", "") for mp in mois_payes]]
+        solde_fip = total_attendu - total_paye
 
         data = {
-            **eleve,
+            "matricule": eleve["matricule"],
+            "nom": eleve["nom"],
+            "sexe": eleve.get("sexe", ""),
+            "classe": eleve.get("classe", ""),
+            "section": eleve.get("section", ""),
+            "categorie": eleve.get("categorie", ""),
+            "telephone": eleve.get("telephone", ""),
             "fip_mensuel": fip_mensuel,
-            "fip_total": fip_total,
-            "solde_fip": solde_fip,
+            "fip_total": round(total_paye, 2),
+            "solde_fip": round(solde_fip, 2),
             "mois_payes": mois_payes,
             "mois_non_payes": mois_non_payes
         }
 
+        # =================================================
+        # 4️⃣ HTML (INCHANGÉ)
+        # =================================================
         html = f"""
 <!DOCTYPE html>
 <html lang="fr">
@@ -2152,13 +2174,11 @@ body {{
     margin: 0;
     padding: 0;
 }}
-
 .container {{
     display: flex;
     justify-content: center;
     margin-top: 60px;
 }}
-
 .card {{
     background: white;
     padding: 35px 45px;
@@ -2166,28 +2186,11 @@ body {{
     width: 650px;
     box-shadow: 0 12px 30px rgba(0,0,0,0.15);
 }}
-
-h2 {{
-    color: #0d47a1;
-    text-align: center;
-}}
-
-.section {{
-    margin-top: 20px;
-}}
-
-.section p {{
-    margin: 6px 0;
-}}
-
-hr {{
-    margin: 20px 0;
-}}
-
-.actions {{
-    text-align: center;
-}}
-
+h2 {{ color: #0d47a1; text-align: center; }}
+.section {{ margin-top: 20px; }}
+.section p {{ margin: 6px 0; }}
+hr {{ margin: 20px 0; }}
+.actions {{ text-align: center; }}
 .actions a {{
     display: inline-block;
     margin: 10px;
@@ -2197,15 +2200,11 @@ hr {{
     border-radius: 8px;
     text-decoration: none;
 }}
-
-.actions a:hover {{
-    background: #0d47a1;
-}}
+.actions a:hover {{ background: #0d47a1; }}
 </style>
 </head>
 
 <body>
-
 <div class="container">
     <div class="card">
 
@@ -2214,7 +2213,7 @@ hr {{
         <div class="section">
             <p><b>Matricule :</b> {data['matricule']}</p>
             <p><b>Nom & Postnom :</b> {data['nom']}</p>
-            <p><b>Sexe :</b> {data.get('sexe','')}</p>
+            <p><b>Sexe :</b> {data['sexe']}</p>
             <p><b>Classe :</b> {data['classe']}</p>
             <p><b>Section :</b> {data['section']}</p>
             <p><b>Catégorie :</b> {data['categorie']}</p>
@@ -2238,20 +2237,20 @@ hr {{
 
         <div class="actions">
             <a href="/admin/fip_eleve">Nouvelle recherche</a>
-            <a href="/admin1/panel">Menu principal</a>
+            <a href="/admin/dashboard">Menu principal</a>
         </div>
 
     </div>
 </div>
-
 </body>
 </html>
 """
         return html
 
     except Exception as e:
-        print("❌ ERREUR fip_eleve_result :", e)
+        print("❌ ERREUR admin_fip_eleve_result :", e)
         return "Erreur interne serveur", 500
+
 
 
 #=================================
