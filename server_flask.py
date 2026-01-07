@@ -17,7 +17,11 @@ from flask import (
 from functools import wraps
 import os
 import re
-import pandas as pd
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
 import psycopg2         # ✅ OBLIGATOIRE
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
@@ -76,15 +80,13 @@ def login_required(f):
 # ===============================================================
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-
 def get_db_connection():
     if not DATABASE_URL:
-        raise RuntimeError("❌ DATABASE_URL manquant : PostgreSQL requis")
+        raise RuntimeError("❌ DATABASE_URL manquant")
 
     return psycopg2.connect(
         DATABASE_URL,
-        sslmode="require"
- 
+        sslmode="require" if "render.com" in DATABASE_URL else "disable"
     )
 
 
