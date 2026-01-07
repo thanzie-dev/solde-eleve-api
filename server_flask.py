@@ -22,6 +22,8 @@ try:
 except ImportError:
     pd = None
 
+import import_excel_pg as import_excel
+
 import psycopg        # ✅ OBLIGATOIRE
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
@@ -2101,7 +2103,7 @@ def admin_fip_eleve_result():
                 if not eleve:
                     return "Élève introuvable", 404
 
-                # 2️⃣ Paiements (BONNE jointure PostgreSQL)
+                # 2️⃣ Paiements
                 cur.execute("""
                     SELECT mois, COALESCE(fip, 0) AS fip
                     FROM paiements
@@ -2114,8 +2116,11 @@ def admin_fip_eleve_result():
         fip_total = sum(p["fip"] for p in paiements)
         fip_mensuel = get_fip_par_classe(eleve["classe"])
 
-        mois_payes = [p["mois"] for p in paiements if p["fip"] > 0]
-        mois_payes = [canonical_month(m) for m in mois_payes if canonical_month(m)]
+        mois_payes = [
+            canonical_month(p["mois"])
+            for p in paiements
+            if p["fip"] > 0 and canonical_month(p["mois"])
+        ]
 
         mois_non_payes = [m for m in MOIS_SCOLAIRE if m not in mois_payes]
         solde_fip = fip_mensuel * len(mois_non_payes)
@@ -2129,29 +2134,99 @@ def admin_fip_eleve_result():
             "mois_non_payes": mois_non_payes
         }
 
-        return render_template_string("""
-        <!DOCTYPE html>
-        <html lang="fr">
-        <head><meta charset="UTF-8"><title>Résultat FIP Élève</title></head>
-        <body>
-            <h2>📋 FICHE FIP ÉLÈVE</h2>
-            <p><b>Matricule :</b> {{ d.matricule }}</p>
-            <p><b>Nom :</b> {{ d.nom }}</p>
-            <p><b>Classe :</b> {{ d.classe }}</p>
-            <p><b>Section :</b> {{ d.section }}</p>
-            <p><b>FIP mensuel :</b> {{ d.fip_mensuel }}</p>
-            <p><b>Total payé :</b> {{ d.fip_total }}</p>
-            <p><b>Solde :</b> {{ d.solde_fip }}</p>
-            <p><b>Mois payés :</b> {{ d.mois_payes|join(", ") }}</p>
-            <p><b>Mois non payés :</b> {{ d.mois_non_payes|join(", ") }}</p>
-            <a href="/admin/fip_eleve">Retour</a>
-        </body>
-        </html>
-        """, d=data)
+        # 4️⃣ HTML
+        html = f"""
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Résultat FIP Élève</title>
+
+<style>
+body {{
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(to right, #f1f8ff, #ffffff);
+    margin: 0;
+    padding: 0;
+}}
+.container {{
+    display: flex;
+    justify-content: center;
+    margin-top: 60px;
+}}
+.card {{
+    background: white;
+    padding: 35px 45px;
+    border-radius: 16px;
+    width: 650px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.15);
+}}
+h2 {{ color: #0d47a1; text-align: center; }}
+.section {{ margin-top: 20px; }}
+.section p {{ margin: 6px 0; }}
+hr {{ margin: 20px 0; }}
+.actions {{ text-align: center; }}
+.actions a {{
+    display: inline-block;
+    margin: 10px;
+    padding: 10px 18px;
+    background: #1976d2;
+    color: white;
+    border-radius: 8px;
+    text-decoration: none;
+}}
+.actions a:hover {{ background: #0d47a1; }}
+</style>
+</head>
+
+<body>
+<div class="container">
+    <div class="card">
+
+        <h2>📋 FICHE FIP ÉLÈVE</h2>
+
+        <div class="section">
+            <p><b>Matricule :</b> {data['matricule']}</p>
+            <p><b>Nom & Postnom :</b> {data['nom']}</p>
+            <p><b>Sexe :</b> {data['sexe']}</p>
+            <p><b>Classe :</b> {data['classe']}</p>
+            <p><b>Section :</b> {data['section']}</p>
+            <p><b>Catégorie :</b> {data['categorie']}</p>
+            <p><b>Téléphone :</b> {data['telephone']}</p>
+        </div>
+
+        <hr>
+
+        <div class="section">
+            <p><b>FIP mensuel :</b> {data['fip_mensuel']}</p>
+            <p><b>Total payé :</b> {data['fip_total']}</p>
+            <p><b>Solde :</b> {data['solde_fip']}</p>
+        </div>
+
+        <hr>
+
+        <div class="section">
+            <p><b>✅ Mois payés :</b> {", ".join(data['mois_payes']) or "Aucun"}</p>
+            <p><b>❌ Mois non payés :</b> {", ".join(data['mois_non_payes'])}</p>
+        </div>
+
+        <div class="actions">
+            <a href="/admin/fip_eleve">Nouvelle recherche</a>
+            <a href="/admin/dashboard">Menu principal</a>
+        </div>
+
+    </div>
+</div>
+</body>
+</html>
+"""
+        return html
 
     except Exception as e:
-        print("❌ ERREUR Render fip_eleve_result :", e)
+        print("❌ ERREUR admin_fip_eleve_result :", e)
         return "Erreur interne serveur", 500
+
+
 
 
 #=================================
