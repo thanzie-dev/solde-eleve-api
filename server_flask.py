@@ -26,7 +26,7 @@ import psycopg        # ✅ OBLIGATOIRE
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-#import import_excel_pg as import_excel
+from psycopg.rows import dict_row
 
 
 from reportlab.platypus import (
@@ -38,6 +38,21 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
 
 
+#==================
+# PSYCOPG
+#==================
+
+def fetch_all(query, params=None):
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(query, params or ())
+            return cur.fetchall()
+
+def fetch_one(query, params=None):
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(query, params or ())
+            return cur.fetchone()
 
 
 # ===============================================================
@@ -55,8 +70,6 @@ ADMIN_PASSWORDS = [
     if pwd.strip()
 ]
 # mots de passe admin
-
-
 
 
 # Mois officiels
@@ -383,39 +396,36 @@ def ping():
 
 @app.route("/api/eleve/<matricule>")
 def api_eleve(matricule):
-    conn = None
     try:
-        conn = get_db_connection()
+        with psycopg.connect(DATABASE_URL) as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
 
-        # 🔴 TEST DIRECT BASE (SANS calcul_fip_eleve)
-        query = """
-            SELECT
-                matricule,
-                nom,
-                sexe,
-                classe,
-                section,
-                categorie,
-                telephone
-            FROM eleves
-            WHERE LOWER(matricule) = LOWER(%s)
-        """
+                query = """
+                    SELECT
+                        matricule,
+                        nom,
+                        sexe,
+                        classe,
+                        section,
+                        categorie,
+                        telephone
+                    FROM eleves
+                    WHERE LOWER(matricule) = LOWER(%s)
+                """
 
-        df = pd.read_sql_query(query, conn, params=(matricule,))
+                cur.execute(query, (matricule,))
+                eleve = cur.fetchone()
 
-        if df.empty:
-            return jsonify({"error": "Élève introuvable"}), 404
+                if not eleve:
+                    return jsonify({"error": "Élève introuvable"}), 404
 
         # 🔥 ON RENVOIE CE QUE LA BASE CONTIENT, BRUT
-        return jsonify(df.iloc[0].to_dict()), 200
+        return jsonify(eleve), 200
 
     except Exception as e:
-        print("❌ ERREUR TEST BRUT :", e)
+        print("❌ ERREUR API ELEVE :", e)
         return jsonify({"error": str(e)}), 500
 
-    finally:
-        if conn:
-            conn.close()
 
 
 
@@ -454,42 +464,34 @@ def api_mobile_eleve(matricule):
 
 @app.route("/api/dashboard")
 def api_dashboard():
-    conn = None
     try:
-        conn = get_db_connection()
+        with psycopg.connect(DATABASE_URL) as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
 
-        nb_eleves = pd.read_sql_query(
-            "SELECT COUNT(*) AS n FROM eleves;", conn
-        )["n"][0]
+                cur.execute("SELECT COUNT(*) FROM eleves;")
+                nb_eleves = cur.fetchone()["count"]
 
-        nb_paiements = pd.read_sql_query(
-            "SELECT COUNT(*) AS n FROM paiements;", conn
-        )["n"][0]
+                cur.execute("SELECT COUNT(*) FROM paiements;")
+                nb_paiements = cur.fetchone()["count"]
 
-        total_fip = float(
-            pd.read_sql_query(
-                "SELECT SUM(fip) AS s FROM paiements;", conn
-            )["s"][0] or 0.0
-        )
+                cur.execute("SELECT COALESCE(SUM(fip), 0) FROM paiements;")
+                total_fip = cur.fetchone()["coalesce"]
 
-        nb_classes = pd.read_sql_query(
-            "SELECT COUNT(DISTINCT classe) AS n FROM eleves WHERE classe IS NOT NULL;",
-            conn
-        )["n"][0]
+                cur.execute(
+                    "SELECT COUNT(DISTINCT classe) FROM eleves WHERE classe IS NOT NULL;"
+                )
+                nb_classes = cur.fetchone()["count"]
 
         return jsonify({
             "nb_eleves": int(nb_eleves),
             "nb_paiements": int(nb_paiements),
             "nb_classes": int(nb_classes),
-            "total_fip_paye": round(total_fip, 2)
+            "total_fip_paye": round(float(total_fip), 2)
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    finally:
-        if conn:
-            conn.close()
 
 
 # ===============================================================
@@ -2082,14 +2084,61 @@ def admin_fip_eleve_result():
     if not matricule:
         return "Matricule manquant", 400
 
-    conn = get_db_connection()
-    data = calcul_fip_eleve(matricule, conn)
-    conn.close()
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
 
-    if not data:
-        return "Élève introuvable", 404
+                # 🔹 Infos élève
+                cur.execute("""
+                    SELECT
+                        matricule,
+                        nom,
+                        sexe,
+                        classe,
+                        section,
+                        categorie,
+                        telephone
+                    FROM eleves
+                    WHERE LOWER(matricule) = LOWER(%s)
+                """, (matricule,))
+                eleve = cur.fetchone()
 
-    html = f"""
+                if not eleve:
+                    return "Élève introuvable", 404
+
+                # 🔹 Paiements FIP
+                cur.execute("""
+                    SELECT mois, fip
+                    FROM paiements
+                    WHERE matricule = %s
+                    ORDER BY datepaiement
+                """, (eleve["matricule"],))
+                paiements = cur.fetchall()
+
+        # 🔹 Calculs
+        fip_total = sum(p["fip"] for p in paiements)
+        fip_mensuel = paiements[0]["fip"] if paiements else 0
+
+        mois_payes = [p["mois"] for p in paiements]
+
+        MOIS_SCOLAIRE = [
+            "Sept", "Oct", "Nov", "Dec", "Janv", "Fevr",
+            "Mars", "Avr", "Mai", "Juin", "Juil"
+        ]
+
+        mois_non_payes = [m for m in MOIS_SCOLAIRE if m not in mois_payes]
+        solde_fip = fip_mensuel * len(mois_non_payes)
+
+        data = {
+            **eleve,
+            "fip_mensuel": fip_mensuel,
+            "fip_total": fip_total,
+            "solde_fip": solde_fip,
+            "mois_payes": mois_payes,
+            "mois_non_payes": mois_non_payes
+        }
+
+        html = f"""
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -2198,7 +2247,11 @@ hr {{
 </body>
 </html>
 """
-    return html
+        return html
+
+    except Exception as e:
+        print("❌ ERREUR fip_eleve_result :", e)
+        return "Erreur interne serveur", 500
 
 
 #=================================
@@ -2745,121 +2798,121 @@ def admin_journal_result():
     if not date_input:
         return "Date manquante", 400
 
-    # date venant du formulaire (YYYY-MM-DD)
-    date_cible = pd.to_datetime(date_input, errors="coerce").date()
-    if pd.isna(date_cible):
+    # Validation simple du format YYYY-MM-DD
+    try:
+        date_cible = datetime.strptime(date_input, "%Y-%m-%d").date()
+    except ValueError:
         return "Date invalide", 400
 
-    conn = get_db_connection()
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
 
-    # ⚠️ COLONNE CORRECTE : datepaiement
-    df = pd.read_sql_query("""
-        SELECT
-            e.matricule,
-            e.nom,
-            e.classe,
-            e.section,
-            p.mois,
-            p.fip,
-            p.numrecu,
-            p.datepaiement
-        FROM paiements p
-        JOIN eleves e ON p.eleve_id = e.id
-    """, conn)
+                query = """
+                    SELECT
+                        e.matricule,
+                        e.nom,
+                        e.classe,
+                        e.section,
+                        p.mois,
+                        p.fip,
+                        p.numrecu,
+                        p.datepaiement
+                    FROM paiements p
+                    JOIN eleves e ON p.eleve_id = e.id
+                    WHERE p.datepaiement = %s
+                    ORDER BY e.nom
+                """
+                cur.execute(query, (date_cible,))
+                results = cur.fetchall()
 
-    conn.close()
+        if not results:
+            return f"""
+            <h3 style="text-align:center;color:#c62828;">
+                Aucun paiement trouvé pour le {date_input}
+            </h3>
+            <div style="text-align:center;">
+                <a href="/admin/journal">← Retour</a>
+            </div>
+            """
 
-    # conversion robuste
-    df["date_norm"] = pd.to_datetime(
-        df["datepaiement"],
-        errors="coerce"
-    ).dt.date
+        total_jour = sum(r["fip"] or 0 for r in results)
 
-    # filtrage
-    df = df[df["date_norm"] == date_cible]
+        rows = ""
+        for r in results:
+            rows += f"""
+            <tr>
+                <td>{r['matricule']}</td>
+                <td>{r['nom']}</td>
+                <td>{r['classe']}</td>
+                <td>{r['section']}</td>
+                <td>{r['mois']}</td>
+                <td>{r['fip']}</td>
+                <td>{r['numrecu']}</td>
+            </tr>
+            """
 
-    if df.empty:
         return f"""
-        <h3 style="text-align:center;color:#c62828;">
-            Aucun paiement trouvé pour le {date_input}
-        </h3>
+        <!DOCTYPE html>
+        <html lang="fr">
+        <head>
+            <meta charset="UTF-8">
+            <title>Journal des paiements du {date_input}</title>
+            <style>
+                body {{ font-family:"Bookman Old Style"; background:#f4f8ff; }}
+                table {{
+                    width:90%;
+                    margin:40px auto;
+                    border-collapse: collapse;
+                    background:white;
+                }}
+                th, td {{
+                    border:1px solid #ccc;
+                    padding:10px;
+                    text-align:center;
+                }}
+                th {{ background:#1976d2; color:white; }}
+                tfoot td {{ font-weight:bold; background:#e3f2fd; }}
+                h2 {{ text-align:center; color:#0d47a1; }}
+            </style>
+        </head>
+        <body>
+
+        <h2>📘 Journal des paiements du {date_input}</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Matricule</th>
+                    <th>Nom</th>
+                    <th>Classe</th>
+                    <th>Section</th>
+                    <th>Mois</th>
+                    <th>Montant</th>
+                    <th>Reçu</th>
+                </tr>
+            </thead>
+            <tbody>{rows}</tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="5">TOTAL JOURNÉE</td>
+                    <td colspan="2">{total_jour}</td>
+                </tr>
+            </tfoot>
+        </table>
+
         <div style="text-align:center;">
             <a href="/admin/journal">← Retour</a>
         </div>
+
+        </body>
+        </html>
         """
 
-    total_jour = df["fip"].sum()
+    except Exception as e:
+        print("❌ ERREUR admin_journal_result :", e)
+        return f"Erreur serveur : {e}", 500
 
-    rows = ""
-    for _, r in df.iterrows():
-        rows += f"""
-        <tr>
-            <td>{r['matricule']}</td>
-            <td>{r['nom']}</td>
-            <td>{r['classe']}</td>
-            <td>{r['section']}</td>
-            <td>{r['mois']}</td>
-            <td>{r['fip']}</td>
-            <td>{r['numrecu']}</td>
-        </tr>
-        """
-
-    return f"""
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="UTF-8">
-        <title>Journal des paiements du {date_input}</title>
-        <style>
-            body {{ font-family:"Bookman Old Style"; background:#f4f8ff; }}
-            table {{
-                width:90%;
-                margin:40px auto;
-                border-collapse: collapse;
-                background:white;
-            }}
-            th, td {{
-                border:1px solid #ccc;
-                padding:10px;
-                text-align:center;
-            }}
-            th {{ background:#1976d2; color:white; }}
-            tfoot td {{ font-weight:bold; background:#e3f2fd; }}
-            h2 {{ text-align:center; color:#0d47a1; }}
-        </style>
-    </head>
-    <body>
-
-    <h2>📘 Journal des paiements du {date_input}</h2>
-
-    <table>
-        <thead>
-            <tr>
-                <th>Matricule</th>
-                <th>Nom</th>
-                <th>Classe</th>
-                <th>Section</th>
-                <th>Mois</th>
-                <th>Montant</th>
-                <th>Reçu</th>
-            </tr>
-        </thead>
-        <tbody>{rows}</tbody>
-        <tfoot>
-            <tr>
-                <td colspan="5">TOTAL JOURNÉE</td>
-                <td colspan="2">{total_jour}</td>
-            </tr>
-        </tfoot>
-    </table>
-
-    <div style="text-align:center;">
-        <a href="/admin/journal">← Retour</a>
-    </div>
-
-    </body>
-    </html>
-    """
 
 
 
