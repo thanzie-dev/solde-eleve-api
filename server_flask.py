@@ -26,7 +26,7 @@ import psycopg        # ✅ OBLIGATOIRE
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-import import_excel_pg as import_excel
+#import import_excel_pg as import_excel
 
 
 from reportlab.platypus import (
