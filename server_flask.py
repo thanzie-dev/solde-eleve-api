@@ -147,10 +147,14 @@ def get_fip_par_classe(classe):
 # 🔵 2. Normalisation des mois
 # ===============================================================
 def canonical_month(m_raw):
-    if pd.isna(m_raw):
+    # Remplace pd.isna sans pandas
+    if m_raw is None:
         return None
 
     s = str(m_raw).strip().lower()
+    if not s:
+        return None
+
     s = re.sub(r'^(ac|sld)[\.\-\s/]*', '', s)
     s = s.replace(".", "").replace(",", "").strip()
 
@@ -174,6 +178,7 @@ def canonical_month(m_raw):
             return v
 
     return None
+
 
 
 # ===============================================================
@@ -781,16 +786,139 @@ def api_classe(classe):
 # ===============================================================
 # 🔵 13. /api/fip_section/<section> — Cumul FIP par section
 # ===============================================================
-@app.route("/api/fip_section/<section>")
-def api_fip_section(section):
-    mois = request.args.get("mois", None)
+@app.route("/admin/fip_section_result")
+@login_required
+def admin_fip_section_result():
+    section = request.args.get("section", "").strip()
+    mois = request.args.get("mois", "").strip() or None
+
+    if not section:
+        return "Section manquante", 400
+
     try:
         result = calcul_fip_cumul_section(section, mois)
-        return jsonify(result)
+
+        mois_affiches = (
+            ", ".join(result["mois_cumul"])
+            if result["mois_cumul"]
+            else "Aucun mois"
+        )
+
+        html = f"""
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Résultat FIP Section</title>
+
+<style>
+body {{
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(to right, #eef5ff, #ffffff);
+    margin: 0;
+    padding: 0;
+}}
+
+.container {{
+    display: flex;
+    justify-content: center;
+    margin-top: 70px;
+}}
+
+.card {{
+    background: white;
+    padding: 35px 45px;
+    border-radius: 16px;
+    width: 520px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.15);
+}}
+
+h2 {{
+    text-align: center;
+    color: #0d47a1;
+    margin-bottom: 25px;
+}}
+
+.section {{
+    margin-bottom: 18px;
+}}
+
+.section p {{
+    margin: 6px 0;
+    font-size: 15px;
+}}
+
+.highlight {{
+    background: #e3f2fd;
+    padding: 14px;
+    border-radius: 10px;
+    margin-top: 15px;
+    text-align: center;
+}}
+
+.total {{
+    font-size: 20px;
+    font-weight: bold;
+    color: #1b5e20;
+}}
+
+.actions {{
+    margin-top: 30px;
+    text-align: center;
+}}
+
+.actions a {{
+    display: inline-block;
+    margin: 8px;
+    padding: 10px 18px;
+    background: #1976d2;
+    color: white;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 14px;
+}}
+
+.actions a:hover {{
+    background: #0d47a1;
+}}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+    <div class="card">
+
+        <h2>📊 FIP – SECTION</h2>
+
+        <div class="section">
+            <p><b>Section :</b> {result["section"]}</p>
+            <p><b>Mois cumulés :</b> {mois_affiches}</p>
+        </div>
+
+        <div class="highlight">
+            <div class="total">
+                TOTAL PAYÉ : {result["total_paye"]}
+            </div>
+        </div>
+
+        <div class="actions">
+            <a href="/admin/fip">Nouvelle recherche</a>
+            <a href="/admin/dashboard">Menu principal</a>
+        </div>
+
+    </div>
+</div>
+
+</body>
+</html>
+"""
+        return html
+
     except Exception as e:
-        # Utile pour PostgreSQL / Render (logs)
-        print("❌ Erreur api_fip_section :", e)
-        return jsonify({"error": str(e)}), 500
+        print("❌ Erreur admin_fip_section_result :", e)
+        return "Erreur interne serveur", 500
+
 
 
 # ===============================================================
@@ -1326,62 +1454,10 @@ button:hover {
 def admin_fip_form():
     return render_template_string(FIP_FORM_HTML)
  
- #==============================================
-#        Route  FIP SECTION  RESULTAT
-#=============================================
-
-@app.route("/admin/fip_section_result", methods=["GET"])
-@login_required
-def admin_fip_section_result():
-    section = request.args.get("section", "")
-    mois = request.args.get("mois", None)
-
-    if not section:
-        return "Section manquante.", 400
-
-    try:
-        result = calcul_fip_cumul_section(section, mois)
-
-        mois_html = ", ".join(result["mois_cumul"]) if result["mois_cumul"] else "Aucun"
-
-        html = f"""
-        <!DOCTYPE html>
-        <html lang="fr">
-        <head>
-        <meta charset="UTF-8">
-        <title>Résultat FIP Section</title>
-        <!-- styles inchangés -->
-        </head>
-        <body>
-        <div class="container">
-            <div class="marquee">
-                <marquee behavior="scroll" direction="left">
-                    📈 Analyse financière par section — Une vision claire pour une gestion efficace
-                </marquee>
-            </div>
-
-            <h2>📊 FIP – SECTION : {result['section']}</h2>
-
-            <div class="info"><b>Mois cumulés :</b> {mois_html}</div>
-
-            <div class="total">
-                TOTAL PAYÉ : {result['total_paye']}
-            </div>
-
-            <a href="/admin/dashboard" class="btn">← Retour au Menu</a>
-        </div>
-        </body>
-        </html>
-        """
-        return html
-
-    except Exception as e:
-        # Log utile pour PostgreSQL / Render
-        print("❌ Erreur admin_fip_section_result :", e)
-        return f"Erreur : {str(e)}", 500
 
 
- #==============================================
+
+#==============================================
 #        Route  FIP MOIS   RESULTAT
 #============================================   
 
@@ -2071,83 +2147,90 @@ def admin_fip_eleve():
 #==============================================
 #RESULTAT ELEVE (Recherche par Numéro Matricule
 #============================================== 
-
 @app.route("/admin/fip_eleve_result")
-@login_required
 def admin_fip_eleve_result():
     matricule = request.args.get("matricule", "").strip()
     if not matricule:
         return "Matricule manquant", 400
 
     try:
-        with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
+        conn = get_db_connection()
+        cur = conn.cursor(row_factory=psycopg.rows.dict_row)
 
-                # 1️⃣ Élève
-                cur.execute("""
-                    SELECT
-                        id,
-                        matricule,
-                        nom,
-                        sexe,
-                        classe,
-                        section,
-                        categorie,
-                        telephone
-                    FROM eleves
-                    WHERE LOWER(matricule) = LOWER(%s)
-                    LIMIT 1
-                """, (matricule,))
-                eleve = cur.fetchone()
+        # =========================
+        # 1️⃣ Infos élève
+        # =========================
+        cur.execute("""
+            SELECT
+                id,
+                matricule,
+                nom,
+                sexe,
+                classe,
+                section,
+                categorie,
+                telephone
+            FROM eleves
+            WHERE LOWER(matricule) = LOWER(%s)
+            LIMIT 1
+        """, (matricule,))
+        eleve = cur.fetchone()
 
-                if not eleve:
-                    return "Élève introuvable", 404
+        if not eleve:
+            return "Élève introuvable", 404
 
-                # 2️⃣ Paiements
-                cur.execute("""
-                    SELECT mois, COALESCE(fip, 0) AS fip
-                    FROM paiements
-                    WHERE eleve_id = %s
-                    ORDER BY datepaiement
-                """, (eleve["id"],))
-                paiements = cur.fetchall()
+        # =========================
+        # 2️⃣ Paiements FIP
+        # =========================
+        cur.execute("""
+            SELECT mois, COALESCE(fip, 0) AS fip
+            FROM paiements
+            WHERE eleve_id = %s
+        """, (eleve["id"],))
+        paiements = cur.fetchall()
 
-        # 3️⃣ Calculs
-        fip_total = sum(p["fip"] for p in paiements)
+        conn.close()
+
+        # =========================
+        # 3️⃣ Calculs FIP
+        # =========================
         fip_mensuel = get_fip_par_classe(eleve["classe"])
+        total_attendu = fip_mensuel * len(MOIS_SCOLAIRE)
 
-        mois_payes = [
-            canonical_month(p["mois"])
-            for p in paiements
-            if p["fip"] > 0 and canonical_month(p["mois"])
-        ]
+        pay_by_month = {}
+        for p in paiements:
+            mois_norm = canonical_month(p["mois"])
+            if not mois_norm:
+                continue
+            pay_by_month[mois_norm] = pay_by_month.get(mois_norm, 0) + float(p["fip"])
 
-        mois_non_payes = [m for m in MOIS_SCOLAIRE if m not in mois_payes]
-        solde_fip = fip_mensuel * len(mois_non_payes)
+        mois_payes = []
+        mois_non_payes = []
+        total_paye = 0.0
 
-        data = {
-            **eleve,
-            "fip_mensuel": fip_mensuel,
-            "fip_total": fip_total,
-            "solde_fip": solde_fip,
-            "mois_payes": mois_payes,
-            "mois_non_payes": mois_non_payes
-        }
+        for m in MOIS_SCOLAIRE:
+            montant = pay_by_month.get(m, 0)
+            if montant == 0:
+                mois_non_payes.append(m)
+            else:
+                total_paye += montant
+                mois_payes.append(m if montant >= fip_mensuel else f"Ac.{m}")
 
-        # 4️⃣ HTML
-        html = f"""
+        solde_fip = total_attendu - total_paye
+
+        # =========================
+        # 4️⃣ HTML (inchangé visuellement)
+        # =========================
+        return f"""
 <!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <title>Résultat FIP Élève</title>
-
 <style>
 body {{
     font-family: "Bookman Old Style", serif;
     background: linear-gradient(to right, #f1f8ff, #ffffff);
-    margin: 0;
-    padding: 0;
 }}
 .container {{
     display: flex;
@@ -2162,9 +2245,7 @@ body {{
     box-shadow: 0 12px 30px rgba(0,0,0,0.15);
 }}
 h2 {{ color: #0d47a1; text-align: center; }}
-.section {{ margin-top: 20px; }}
 .section p {{ margin: 6px 0; }}
-hr {{ margin: 20px 0; }}
 .actions {{ text-align: center; }}
 .actions a {{
     display: inline-block;
@@ -2175,55 +2256,51 @@ hr {{ margin: 20px 0; }}
     border-radius: 8px;
     text-decoration: none;
 }}
-.actions a:hover {{ background: #0d47a1; }}
 </style>
 </head>
-
 <body>
+
 <div class="container">
-    <div class="card">
+<div class="card">
+<h2>📋 FICHE FIP ÉLÈVE</h2>
 
-        <h2>📋 FICHE FIP ÉLÈVE</h2>
+<div class="section">
+<p><b>Matricule :</b> {eleve['matricule']}</p>
+<p><b>Nom :</b> {eleve['nom']}</p>
+<p><b>Sexe :</b> {eleve['sexe'] or ''}</p>
+<p><b>Classe :</b> {eleve['classe']}</p>
+<p><b>Section :</b> {eleve['section']}</p>
+<p><b>Catégorie :</b> {eleve['categorie']}</p>
+<p><b>Téléphone :</b> {eleve['telephone']}</p>
+</div>
 
-        <div class="section">
-            <p><b>Matricule :</b> {data['matricule']}</p>
-            <p><b>Nom & Postnom :</b> {data['nom']}</p>
-            <p><b>Sexe :</b> {data['sexe']}</p>
-            <p><b>Classe :</b> {data['classe']}</p>
-            <p><b>Section :</b> {data['section']}</p>
-            <p><b>Catégorie :</b> {data['categorie']}</p>
-            <p><b>Téléphone :</b> {data['telephone']}</p>
-        </div>
+<hr>
 
-        <hr>
+<div class="section">
+<p><b>FIP mensuel :</b> {fip_mensuel}</p>
+<p><b>Total payé :</b> {round(total_paye, 2)}</p>
+<p><b>Solde :</b> {round(solde_fip, 2)}</p>
+</div>
 
-        <div class="section">
-            <p><b>FIP mensuel :</b> {data['fip_mensuel']}</p>
-            <p><b>Total payé :</b> {data['fip_total']}</p>
-            <p><b>Solde :</b> {data['solde_fip']}</p>
-        </div>
+<hr>
 
-        <hr>
+<div class="section">
+<p><b>✅ Mois payés :</b> {", ".join(mois_payes)}</p>
+<p><b>❌ Mois non payés :</b> {", ".join(mois_non_payes)}</p>
+</div>
 
-        <div class="section">
-            <p><b>✅ Mois payés :</b> {", ".join(data['mois_payes']) or "Aucun"}</p>
-            <p><b>❌ Mois non payés :</b> {", ".join(data['mois_non_payes'])}</p>
-        </div>
+<div class="actions">
+<a href="/admin1/gestion_eleve">← Retour</a>
+</div>
 
-        <div class="actions">
-            <a href="/admin/fip_eleve">Nouvelle recherche</a>
-            <a href="/admin/dashboard">Menu principal</a>
-        </div>
-
-    </div>
+</div>
 </div>
 </body>
 </html>
 """
-        return html
 
     except Exception as e:
-        print("❌ ERREUR admin_fip_eleve_result :", e)
+        print("❌ ERREUR fip_eleve_result :", e)
         return "Erreur interne serveur", 500
 
 
@@ -2626,65 +2703,75 @@ function fermerModal() {
 </html>
 """
 
+# ===============================================================
+# 🔵 GESTION DES ÉLÈVES (FORMULAIRE)
+# ===============================================================
+
 @app.route("/admin1/gestion_eleve")
 def gestion_eleve():
-   return render_template_string(GESTION_ELEVE_HTML)
+    return render_template_string(GESTION_ELEVE_HTML)
 
+
+# ===============================================================
+# 🔵 RECHERCHE DES MATRICULES PAR NUMÉRO DE TÉLÉPHONE
+# ===============================================================
 
 @app.route("/admin1/find_matricules_by_phone")
 def find_matricules_by_phone():
     phone = request.args.get("phone", "").strip()
+
+    # 🔹 Sécurité : entrée vide
     if not phone:
         return jsonify([])
 
-    # 🔹 Normalisation côté utilisateur
+    # 🔹 Normalisation stricte du numéro
     digits = "".join(c for c in phone if c.isdigit())
+
+    # 🔹 Sécurité : minimum 6 chiffres
+    if len(digits) < 6:
+        return jsonify([])
+
     last9 = digits[-9:]
 
-    conn = get_db_connection()
-    cur = conn.cursor(row_factory=psycopg.rows.dict_row)
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(row_factory=psycopg.rows.dict_row)
 
-
-    query = (
-        """
+        query = """
         SELECT DISTINCT matricule
         FROM eleves
-        WHERE
-        REPLACE(
-          REPLACE(
-            REPLACE(
-              REPLACE(
-                REPLACE(telephone, '+', ''),
-              ' ', ''),
-            '-', ''),
-          '/', ''),
-        ';', '')
-        LIKE %s
+        WHERE telephone IS NOT NULL
+          AND REPLACE(
+                REPLACE(
+                  REPLACE(
+                    REPLACE(
+                      REPLACE(telephone, '+', ''),
+                    ' ', ''),
+                  '-', ''),
+                '/', ''),
+              ';', '')
+          LIKE %s
         """
-        if DATABASE_URL
-        else
-        """
-        SELECT DISTINCT matricule
-        FROM eleves
-        WHERE
-        REPLACE(
-          REPLACE(
-            REPLACE(
-              REPLACE(
-                REPLACE(telephone, '+', ''),
-              ' ', ''),
-            '-', ''),
-          '/', ''),
-        ';', '')
-        LIKE ?
-        """
-    )
 
-    cur.execute(query, (f"%{last9}",))
-    result = [r[0] for r in cur.fetchall()]
-    conn.close()
+        cur.execute(query, (f"%{last9}",))
+        rows = cur.fetchall()
 
-    return jsonify(result)
+        # 🔹 Extraction propre
+        result = [row["matricule"] for row in rows]
+
+        return jsonify(result)
+
+    except Exception as e:
+        # ⚠️ Log utile Render / local
+        print("❌ Erreur find_matricules_by_phone :", e)
+        return jsonify([])
+
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 
 
 
