@@ -17,12 +17,6 @@ from flask import (
 from functools import wraps
 import os
 import re
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
-
-import import_excel_pg as import_excel
 
 import psycopg        # ✅ OBLIGATOIRE
 from datetime import datetime
@@ -147,16 +141,17 @@ def get_fip_par_classe(classe):
 # 🔵 2. Normalisation des mois
 # ===============================================================
 def canonical_month(m_raw):
-    # Remplace pd.isna sans pandas
     if m_raw is None:
         return None
 
-    s = str(m_raw).strip().lower()
+    s = str(m_raw).strip()
     if not s:
         return None
 
+    s = s.lower()
     s = re.sub(r'^(ac|sld)[\.\-\s/]*', '', s)
     s = s.replace(".", "").replace(",", "").strip()
+
 
     mapping = {
         "sept": "Sept",
@@ -1250,7 +1245,10 @@ def admin_upload_form():
 @login_required
 def admin_upload_excel():
     if "excel_file" not in request.files:
-        return jsonify({"error": "Aucun fichier reçu"}), 400
+        return jsonify({
+        "status": "error",
+        "message": "Import Excel désactivé sur Render. Importer en local."}), 503
+
 
     f = request.files["excel_file"]
     if f.filename == "":
