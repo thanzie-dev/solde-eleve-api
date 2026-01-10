@@ -1,23 +1,21 @@
 """
-import_excel_pg.py — Version PRO PostgreSQL STABLE 1.3
+import_excel_pg.py — VERSION SANS PANDAS (Python 3.13 compatible)
 
-✔ Excel réel (colonnes parasites ignorées)
+✔ Excel réel (openpyxl pur)
 ✔ En-têtes ligne 8
-✔ Mapping robuste par nom
+✔ Colonnes parasites ignorées
 ✔ Compatible Flask / CLI
-✔ Prêt production
+✔ Fonctionne en local ET sur Render
 """
 
 import os
 import sys
 import re
-from datetime import datetime
+from datetime import datetime, date
 
-import pandas as pd
-from dateutil import parser
 import psycopg
 from psycopg.rows import dict_row
-
+from openpyxl import load_workbook
 
 # ======================================================
 # CONFIGURATION
@@ -29,27 +27,13 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL non définie")
 
-HEADER_LINE = 7  # entêtes Excel à la ligne 8
+HEADER_LINE = 8  # ligne Excel réelle (1-based)
 
-# Colonnes attendues (mapping réel Excel)
-REQUIRED_COLS = {
-    "Matricule": "Matricule",
-    "Nom": "Nom",
-    "Sexe": "Sexe",
-    "Classe": "Classe",
-    "Categorie": "Categorie",
-    "Section": "Section",
-    "Telephone": "Telephone",
-    "Email": "Email",
-    "NumRecu": "NumRecu",
-    "Mois": "Mois",
-    "FIP": "FIP",
-    "FF": "FF",
-    "Obs": "Obs",
-    "Jour": "Jour",
-    "DatePaiement": "DatePaiement",
-    "AnneeScolaire": "AnneeScolaire",
-}
+REQUIRED_COLS = [
+    "Matricule", "Nom", "Sexe", "Classe", "Categorie", "Section",
+    "Telephone", "Email", "NumRecu", "Mois",
+    "FIP", "FF", "Obs", "Jour", "DatePaiement", "AnneeScolaire"
+]
 
 # ======================================================
 # UTILITAIRES
@@ -61,10 +45,8 @@ def log(msg):
 def clean_str(v):
     if v is None:
         return None
-
     s = str(v).strip()
     return s if s else None
-
 
 def to_float(v):
     try:
@@ -72,90 +54,64 @@ def to_float(v):
     except Exception:
         return 0.0
 
-from datetime import datetime, date
-
 def parse_date(v):
-    if v is None:
-        return None
-
-    # Déjà une date ou datetime
     if isinstance(v, date):
         return v
     if isinstance(v, datetime):
         return v.date()
-
-    # Chaîne de caractères
     if isinstance(v, str):
-        s = v.strip()
-        if not s:
-            return None
-
         for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
             try:
-                return datetime.strptime(s, fmt).date()
+                return datetime.strptime(v.strip(), fmt).date()
             except ValueError:
-                continue
-
+                pass
     return None
-
-
 
 def matricule_valide(m):
     return bool(m and re.match(r"^(PL|LT)[0-9]+$", str(m).strip()))
 
 # ======================================================
-# LECTURE EXCEL (ROBUSTE)
+# LECTURE EXCEL (openpyxl PUR)
 # ======================================================
+
 def charger_excel():
-    log("Lecture du fichier Excel...")
+    log("Lecture du fichier Excel (openpyxl)...")
 
-    df = pd.read_excel(
-        EXCEL_FILE,
-        header=HEADER_LINE,
-        engine="openpyxl",
-        dtype=object
-    )
+    wb = load_workbook(EXCEL_FILE, data_only=True)
+    ws = wb.active
 
-    # Nettoyage noms colonnes
-    df.columns = (
-        df.columns
-        .astype(str)
-        .str.strip()
-        .str.replace("\n", "", regex=False)
-        .str.replace("\r", "", regex=False)
-    )
+    headers = []
+    for cell in ws[HEADER_LINE]:
+        if cell.value:
+            headers.append(str(cell.value).strip())
+        else:
+            headers.append(None)
 
-    # Suppression colonnes parasites Unnamed
-    df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
+    col_index = {h: i for i, h in enumerate(headers) if h}
 
-    # Vérification colonnes requises
-    missing = set(REQUIRED_COLS.keys()) - set(df.columns)
+    missing = set(REQUIRED_COLS) - set(col_index.keys())
     if missing:
-        raise ValueError(f"❌ Colonnes manquantes dans Excel : {missing}")
+        raise RuntimeError(f"❌ Colonnes manquantes dans Excel : {missing}")
 
-    # Sélection propre
-    df = df[list(REQUIRED_COLS.keys())]
+    lignes = []
 
-    # Nettoyage données élèves
-    df["Matricule"] = df["Matricule"].apply(clean_str)
-    df = df[df["Matricule"].notna()]
-    df = df[df["Matricule"].apply(matricule_valide)]
+    for row in ws.iter_rows(min_row=HEADER_LINE + 1, values_only=True):
+        record = {col: clean_str(row[col_index[col]]) for col in REQUIRED_COLS}
 
-    for col in ["Nom", "Sexe", "Classe", "Categorie", "Section", "Telephone", "Email"]:
-        df[col] = df[col].apply(clean_str)
+        if not record["Matricule"] or not matricule_valide(record["Matricule"]):
+            continue
 
-    # Paiements
-    df["NumRecu"] = df["NumRecu"].apply(clean_str)
-    df = df[df["NumRecu"].notna()]
-    df = df.drop_duplicates(subset=["NumRecu"])
+        if not record["NumRecu"]:
+            continue
 
-    df["FIP"] = df["FIP"].apply(to_float)
-    df["FF"] = df["FF"].apply(to_float)
-    df["DatePaiement"] = df["DatePaiement"].apply(parse_date)
+        record["FIP"] = to_float(record["FIP"])
+        record["FF"] = to_float(record["FF"])
+        record["DatePaiement"] = parse_date(record["DatePaiement"])
 
-    log(f"{len(df)} lignes valides prêtes à importer")
-    return df
+        lignes.append(record)
 
+    log(f"{len(lignes)} lignes valides prêtes à importer")
+    return lignes
 
 # ======================================================
 # SCHEMA POSTGRESQL
@@ -197,13 +153,15 @@ def creer_schema(conn):
 # INSERTION DONNÉES
 # ======================================================
 
-def inserer_donnees(df, conn):
+def inserer_donnees(lignes, conn):
     with conn.cursor() as c:
 
-        # ÉLÈVES
-        for r in df.itertuples():
+        for r in lignes:
             c.execute("""
-            INSERT INTO eleves (matricule, nom, sexe, classe, categorie, section, telephone, email)
+            INSERT INTO eleves (
+                matricule, nom, sexe, classe,
+                categorie, section, telephone, email
+            )
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (matricule) DO UPDATE SET
                 nom=EXCLUDED.nom,
@@ -214,12 +172,11 @@ def inserer_donnees(df, conn):
                 telephone=EXCLUDED.telephone,
                 email=EXCLUDED.email;
             """, (
-                r.Matricule, r.Nom, r.Sexe, r.Classe,
-                r.Categorie, r.Section, r.Telephone, r.Email
+                r["Matricule"], r["Nom"], r["Sexe"], r["Classe"],
+                r["Categorie"], r["Section"], r["Telephone"], r["Email"]
             ))
 
-        # PAIEMENTS
-        for r in df.itertuples():
+        for r in lignes:
             c.execute("""
             INSERT INTO paiements (
                 eleve_id, numrecu, mois, fip, ff, obs,
@@ -236,9 +193,9 @@ def inserer_donnees(df, conn):
                 datepaiement=EXCLUDED.datepaiement,
                 annee_scolaire=EXCLUDED.annee_scolaire;
             """, (
-                r.NumRecu, r.Mois, r.FIP, r.FF, r.Obs,
-                r.Jour, r.DatePaiement, r.AnneeScolaire,
-                r.Matricule
+                r["NumRecu"], r["Mois"], r["FIP"], r["FF"], r["Obs"],
+                r["Jour"], r["DatePaiement"], r["AnneeScolaire"],
+                r["Matricule"]
             ))
 
     conn.commit()
@@ -247,13 +204,10 @@ def inserer_donnees(df, conn):
 # FONCTION PRINCIPALE
 # ======================================================
 
-import psycopg
-from psycopg.rows import dict_row
-
 def run_import():
     log("=== DÉBUT IMPORT POSTGRESQL ===")
 
-    df = charger_excel()
+    lignes = charger_excel()
 
     conn = psycopg.connect(
         DATABASE_URL,
@@ -262,13 +216,11 @@ def run_import():
 
     try:
         creer_schema(conn)
-        inserer_donnees(df, conn)
-        conn.commit()
+        inserer_donnees(lignes, conn)
     finally:
         conn.close()
 
     log("✅ IMPORT TERMINÉ AVEC SUCCÈS")
-
 
 # ======================================================
 # MODE TERMINAL
