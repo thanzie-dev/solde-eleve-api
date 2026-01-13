@@ -59,3 +59,4 @@ temp/
 *.pdf
 *.json
 inspect_*.py
+psql
