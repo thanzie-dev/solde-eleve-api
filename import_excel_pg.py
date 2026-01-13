@@ -1,11 +1,12 @@
 """
-import_excel_pg.py — VERSION SANS PANDAS (Python 3.13 compatible)
-
-✔ Excel réel (openpyxl pur)
-✔ En-têtes ligne 8
-✔ Colonnes parasites ignorées
-✔ Compatible Flask / CLI
-✔ Fonctionne en local ET sur Render
+import_excel_pg.py — VERSION STRICTE MÉTIER (DATE OBLIGATOIRE)
+✔ psycopg v3
+✔ Sans pandas
+✔ openpyxl pur
+✔ Chaque paiement garde SA date
+✔ Import BLOQUÉ si DatePaiement absente/invalide
+✔ Bug Excel date corrigé (respect du type date)
+✔ Compatible Python 3.13 / Render / Local
 """
 
 import os
@@ -14,7 +15,6 @@ import re
 from datetime import datetime, date
 
 import psycopg
-from psycopg.rows import dict_row
 from openpyxl import load_workbook
 
 # ======================================================
@@ -23,11 +23,10 @@ from openpyxl import load_workbook
 
 EXCEL_FILE = "THZBD2526GA.xlsx"
 DATABASE_URL = os.environ.get("DATABASE_URL")
+HEADER_LINE = 8
 
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL non définie")
-
-HEADER_LINE = 8  # ligne Excel réelle (1-based)
 
 REQUIRED_COLS = [
     "Matricule", "Nom", "Sexe", "Classe", "Categorie", "Section",
@@ -36,17 +35,18 @@ REQUIRED_COLS = [
 ]
 
 # ======================================================
-# UTILITAIRES
+# OUTILS
 # ======================================================
 
 def log(msg):
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}")
 
-def clean_str(v):
+def clean(v):
+    """Nettoyage standard (SAUF pour les dates)"""
     if v is None:
         return None
     s = str(v).strip()
-    return s if s else None
+    return s or None
 
 def to_float(v):
     try:
@@ -55,12 +55,18 @@ def to_float(v):
         return 0.0
 
 def parse_date(v):
-    if isinstance(v, date):
+    """
+    Analyse robuste des dates :
+    - date Excel (date)
+    - date Excel (datetime)
+    - chaîne '06/11/2025', '2025-11-06', '06-11-2025'
+    """
+    if isinstance(v, date) and not isinstance(v, datetime):
         return v
     if isinstance(v, datetime):
         return v.date()
     if isinstance(v, str):
-        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
             try:
                 return datetime.strptime(v.strip(), fmt).date()
             except ValueError:
@@ -68,96 +74,87 @@ def parse_date(v):
     return None
 
 def matricule_valide(m):
-    return bool(m and re.match(r"^(PL|LT)[0-9]+$", str(m).strip()))
+    return bool(m and re.match(r"^(PL|LT)\d+$", str(m)))
 
 # ======================================================
-# LECTURE EXCEL (openpyxl PUR)
+# LECTURE & VALIDATION STRICTE DE L'EXCEL
 # ======================================================
 
-def charger_excel():
-    log("Lecture du fichier Excel (openpyxl)...")
+def charger_excel_strict():
+    log("Lecture et validation stricte du fichier Excel…")
 
-    wb = load_workbook(EXCEL_FILE, data_only=True)
+    wb = load_workbook(EXCEL_FILE, data_only=True, read_only=True)
     ws = wb.active
 
-    headers = []
-    for cell in ws[HEADER_LINE]:
-        if cell.value:
-            headers.append(str(cell.value).strip())
-        else:
-            headers.append(None)
+    headers = [clean(c.value) for c in ws[HEADER_LINE]]
+    col = {h: i for i, h in enumerate(headers) if h}
 
-    col_index = {h: i for i, h in enumerate(headers) if h}
-
-    missing = set(REQUIRED_COLS) - set(col_index.keys())
+    missing = set(REQUIRED_COLS) - set(col)
     if missing:
-        raise RuntimeError(f"❌ Colonnes manquantes dans Excel : {missing}")
+        raise RuntimeError(f"❌ Colonnes manquantes : {missing}")
 
     lignes = []
 
-    for row in ws.iter_rows(min_row=HEADER_LINE + 1, values_only=True):
-        record = {col: clean_str(row[col_index[col]]) for col in REQUIRED_COLS}
+    for idx, row in enumerate(
+        ws.iter_rows(min_row=HEADER_LINE + 1, values_only=True),
+        start=HEADER_LINE + 1
+    ):
+        r = {}
 
-        if not record["Matricule"] or not matricule_valide(record["Matricule"]):
+        # ⚠️ IMPORTANT : NE PAS nettoyer DatePaiement ici
+        for k in REQUIRED_COLS:
+            cell_value = row[col[k]]
+            if k == "DatePaiement":
+                r[k] = cell_value   # on garde le type Excel
+            else:
+                r[k] = clean(cell_value)
+
+        if not matricule_valide(r["Matricule"]):
+            continue
+        if not r["NumRecu"]:
             continue
 
-        if not record["NumRecu"]:
-            continue
+        # 🔴 VALIDATION DATE STRICTE
+        date_paiement = parse_date(r["DatePaiement"])
+        if date_paiement is None:
+            raise RuntimeError(
+                f"\n❌ IMPORT BLOQUÉ\n"
+                f"DatePaiement manquante ou invalide\n"
+                f"Ligne Excel : {idx}\n"
+                f"Matricule   : {r['Matricule']}\n"
+                f"NumRecu     : {r['NumRecu']}\n"
+                f"Valeur brute DatePaiement : {r['DatePaiement']}\n"
+                f"👉 Corrigez le fichier Excel puis relancez l’import.\n"
+            )
 
-        record["FIP"] = to_float(record["FIP"])
-        record["FF"] = to_float(record["FF"])
-        record["DatePaiement"] = parse_date(record["DatePaiement"])
+        r["DatePaiement"] = date_paiement
+        r["FIP"] = to_float(r["FIP"])
+        r["FF"] = to_float(r["FF"])
 
-        lignes.append(record)
+        lignes.append(r)
 
-    log(f"{len(lignes)} lignes valides prêtes à importer")
+    log(f"{len(lignes)} lignes valides prêtes pour import")
     return lignes
 
 # ======================================================
-# SCHEMA POSTGRESQL
-# ======================================================
-
-def creer_schema(conn):
-    with conn.cursor() as c:
-        c.execute("""
-        CREATE TABLE IF NOT EXISTS eleves (
-            id SERIAL PRIMARY KEY,
-            matricule TEXT UNIQUE,
-            nom TEXT,
-            sexe TEXT,
-            classe TEXT,
-            categorie TEXT,
-            section TEXT,
-            telephone TEXT,
-            email TEXT
-        );
-        """)
-
-        c.execute("""
-        CREATE TABLE IF NOT EXISTS paiements (
-            id SERIAL PRIMARY KEY,
-            eleve_id INTEGER REFERENCES eleves(id) ON DELETE CASCADE,
-            numrecu TEXT UNIQUE,
-            mois TEXT,
-            fip NUMERIC,
-            ff NUMERIC,
-            obs TEXT,
-            jour TEXT,
-            datepaiement DATE,
-            annee_scolaire TEXT
-        );
-        """)
-    conn.commit()
-
-# ======================================================
-# INSERTION DONNÉES
+# INSERTION TRANSACTIONNELLE (PSYCOPG3)
 # ======================================================
 
 def inserer_donnees(lignes, conn):
-    with conn.cursor() as c:
+    conn.autocommit = False
 
-        for r in lignes:
-            c.execute("""
+    with conn.cursor() as cur:
+
+        # ---------- ÉLÈVES ----------
+        eleves = {
+            r["Matricule"]: (
+                r["Matricule"], r["Nom"], r["Sexe"], r["Classe"],
+                r["Categorie"], r["Section"], r["Telephone"], r["Email"]
+            )
+            for r in lignes
+        }
+
+        cur.executemany("""
             INSERT INTO eleves (
                 matricule, nom, sexe, classe,
                 categorie, section, telephone, email
@@ -171,19 +168,37 @@ def inserer_donnees(lignes, conn):
                 section=EXCLUDED.section,
                 telephone=EXCLUDED.telephone,
                 email=EXCLUDED.email;
-            """, (
-                r["Matricule"], r["Nom"], r["Sexe"], r["Classe"],
-                r["Categorie"], r["Section"], r["Telephone"], r["Email"]
+        """, eleves.values())
+
+        # ---------- MAP matricule → eleve_id ----------
+        cur.execute("SELECT id, matricule FROM eleves")
+        eleve_ids = {m: i for i, m in cur.fetchall()}
+
+        # ---------- PAIEMENTS ----------
+        paiements = []
+        for r in lignes:
+            eid = eleve_ids.get(r["Matricule"])
+            if not eid:
+                continue
+
+            paiements.append((
+                eid,
+                r["NumRecu"],
+                r["Mois"],
+                r["FIP"],
+                r["FF"],
+                r["Obs"],
+                r["Jour"],
+                r["DatePaiement"],
+                r["AnneeScolaire"]
             ))
 
-        for r in lignes:
-            c.execute("""
+        cur.executemany("""
             INSERT INTO paiements (
-                eleve_id, numrecu, mois, fip, ff, obs,
-                jour, datepaiement, annee_scolaire
+                eleve_id, numrecu, mois, fip, ff,
+                obs, jour, datepaiement, annee_scolaire
             )
-            SELECT id,%s,%s,%s,%s,%s,%s,%s,%s
-            FROM eleves WHERE matricule=%s
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (numrecu) DO UPDATE SET
                 mois=EXCLUDED.mois,
                 fip=EXCLUDED.fip,
@@ -192,44 +207,31 @@ def inserer_donnees(lignes, conn):
                 jour=EXCLUDED.jour,
                 datepaiement=EXCLUDED.datepaiement,
                 annee_scolaire=EXCLUDED.annee_scolaire;
-            """, (
-                r["NumRecu"], r["Mois"], r["FIP"], r["FF"], r["Obs"],
-                r["Jour"], r["DatePaiement"], r["AnneeScolaire"],
-                r["Matricule"]
-            ))
+        """, paiements)
 
     conn.commit()
 
 # ======================================================
-# FONCTION PRINCIPALE
+# MAIN
 # ======================================================
 
 def run_import():
-    log("=== DÉBUT IMPORT POSTGRESQL ===")
+    log("=== DÉBUT IMPORT (MODE STRICT DATE) ===")
 
-    lignes = charger_excel()
+    lignes = charger_excel_strict()
 
-    conn = psycopg.connect(
+    with psycopg.connect(
         DATABASE_URL,
         sslmode="require" if "render.com" in DATABASE_URL else "disable"
-    )
-
-    try:
-        creer_schema(conn)
+    ) as conn:
         inserer_donnees(lignes, conn)
-    finally:
-        conn.close()
 
     log("✅ IMPORT TERMINÉ AVEC SUCCÈS")
-
-# ======================================================
-# MODE TERMINAL
-# ======================================================
 
 if __name__ == "__main__":
     try:
         run_import()
     except Exception as e:
-        log("❌ ERREUR IMPORT")
+        log("❌ IMPORT ANNULÉ")
         print(e)
         sys.exit(1)

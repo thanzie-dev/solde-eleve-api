@@ -11,8 +11,8 @@ from flask import (
 from functools import wraps
 import os
 import re
-from datetime import datetime
-
+from datetime import datetime,timedelta
+from datetime import date
 import psycopg
 from psycopg.rows import dict_row
 
@@ -1808,57 +1808,81 @@ def admin_dashboard():
 @app.route("/api/rapport_classe/<classe>")
 @login_required
 def rapport_pdf_classe(classe):
-    """
-    Génère un PDF par classe (montants payés ou mois non payés)
-    Compatible toutes variantes de classe : 1°P, 1░P, 4°CG, etc.
-    """
 
     type_pdf = request.args.get("type", "paye")
-
-    # 🔹 Normalisation classe
     classe_norm = canonical_classe(classe)
     if not classe_norm:
         return "Classe invalide", 400
 
-    conn = None
     try:
+        # 🔹 1 SEULE CONNEXION DB
         conn = get_db_connection()
-        cur = conn.cursor(row_factory=psycopg.rows.dict_row)
+        cur = conn.cursor(row_factory=dict_row)
 
-        # 🔹 Récupération élèves (robuste)
+        # 🔹 Récupération élèves
         cur.execute("""
-            SELECT matricule, nom
+            SELECT id, matricule, nom
             FROM eleves
             WHERE regexp_replace(UPPER(classe), '[^A-Z0-9]', '', 'g') = %s
             ORDER BY nom
         """, (classe_norm,))
-
         eleves = cur.fetchall()
 
         if not eleves:
             return f"Aucun élève trouvé pour la classe {classe}", 404
 
-        lignes = []
-        for e in eleves:
-            data = calcul_fip_eleve(e["matricule"])
-            if not data:
+        # 🔹 Paiements groupés (1 requête)
+        cur.execute("""
+            SELECT
+                e.matricule,
+                p.mois,
+                COALESCE(p.fip,0) AS fip
+            FROM paiements p
+            JOIN eleves e ON p.eleve_id = e.id
+            WHERE regexp_replace(UPPER(e.classe), '[^A-Z0-9]', '', 'g') = %s
+        """, (classe_norm,))
+        paiements = cur.fetchall()
+
+        conn.close()
+
+        # 🔹 Organisation en mémoire (RAPIDE)
+        pay_map = {}
+        for p in paiements:
+            m = canonical_month(p["mois"])
+            if not m:
                 continue
+            pay_map.setdefault(p["matricule"], {}).setdefault(m, 0)
+            pay_map[p["matricule"]][m] += float(p["fip"])
 
-            valeur = (
-                ", ".join(data["mois_non_payes"])
-                if type_pdf == "impaye"
-                else str(data["fip_total"])
+        # 🔹 Construction lignes PDF
+        lignes = []
+        for i, e in enumerate(eleves, start=1):
+            mois_payes = sorted(
+                pay_map.get(e["matricule"], {}).keys(),
+                key=lambda m: MOIS_SCOLAIRE.index(m)
             )
+            total_paye = sum(pay_map.get(e["matricule"], {}).values())
+            mois_non_payes = [m for m in MOIS_SCOLAIRE if m not in mois_payes]
 
-            lignes.append([
-                e["matricule"],
-                e["nom"],
-                valeur
-            ])
+            if type_pdf == "paye":
+                lignes.append([
+                    i,
+                    e["matricule"],
+                    e["nom"],
+                    total_paye,
+                    ", ".join(mois_payes)
+                ])
+            else:
+                lignes.append([
+                    i,
+                    e["matricule"],
+                    e["nom"],
+                    ", ".join(mois_non_payes)
+                ])
 
-        # 🔹 Génération PDF (INCHANGÉE)
+        # 🔹 PDF
         os.makedirs("temp", exist_ok=True)
-        path = os.path.join("temp", f"rapport_{classe_norm}_{type_pdf}.pdf")
+        path = f"temp/rapport_{classe_norm}_{type_pdf}.pdf"
 
         doc = SimpleDocTemplate(
             path,
@@ -1871,26 +1895,53 @@ def rapport_pdf_classe(classe):
 
         elements = []
 
-        table_data = [["Matricule", "Nom", "Valeur"]] + lignes
-        table = Table(table_data, colWidths=[3*cm, 7*cm, 5*cm])
+        # LOGO
+        logo = "static/images/logo_csnst.png"
+        if os.path.exists(logo):
+            elements.append(Image(logo, 3*cm, 2.3*cm))
+        elements.append(Spacer(1, 12))
+
+        # TITRE
+        titre = (
+            f"LISTE DES MOIS PAYÉS<br/>POUR LA CLASSE DE : <b>{classe_norm}</b>"
+            if type_pdf == "paye"
+            else f"LISTE DES MOIS NON PAYÉS<br/>POUR LA CLASSE DE : <b>{classe_norm}</b>"
+        )
+        elements.append(Paragraph(titre, ParagraphStyle(
+            "title", fontSize=14, alignment=1, spaceAfter=20
+        )))
+
+        # TABLE
+        headers = (
+            ["N°", "Matricule", "Nom", "Valeur", "Mois payés"]
+            if type_pdf == "paye"
+            else ["N°", "Matricule", "Nom", "Valeur"]
+        )
+
+        table = Table([headers] + lignes, repeatRows=1)
+
         table.setStyle(TableStyle([
-            ("GRID", (0,0), (-1,-1), 1, colors.black),
-            ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
-            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+            ("GRID", (0,0), (-1,-1), 1, colors.grey),
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1976d2")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+
+            # Alignements
+            ("ALIGN", (0,1), (0,-1), "CENTER"),   # N°
+            ("ALIGN", (1,1), (2,-1), "LEFT"),     # Matricule + Nom
+            ("ALIGN", (3,1), (3,-1),
+                "CENTER" if type_pdf == "paye" else "LEFT"),
+            ("ALIGN", (4,1), (4,-1), "LEFT"),
         ]))
 
         elements.append(table)
-        doc.build(elements)
 
+        doc.build(elements)
         return send_file(path, as_attachment=True)
 
     except Exception as e:
-        print("❌ ERREUR rapport_pdf_classe :", e)
+        print("❌ ERREUR PDF CLASSE :", e)
         return "Erreur interne serveur", 500
-
-    finally:
-        if conn:
-            conn.close()
 
 
     
@@ -2772,15 +2823,17 @@ a {
 @login_required
 def admin_journal():
     return render_template_string(JOURNAL_HTML)
-
+    
+    
 @app.route("/admin/journal_result")
 @login_required
 def admin_journal_result():
+
     date_input = request.args.get("date")
     if not date_input:
         return "Date manquante", 400
 
-    # Validation simple du format YYYY-MM-DD
+    # Validation du format YYYY-MM-DD
     try:
         date_cible = datetime.strptime(date_input, "%Y-%m-%d").date()
     except ValueError:
@@ -2798,16 +2851,22 @@ def admin_journal_result():
                         e.section,
                         p.mois,
                         p.fip,
-                        p.numrecu,
-                        p.datepaiement
+                        p.numrecu
                     FROM paiements p
                     JOIN eleves e ON p.eleve_id = e.id
-                    WHERE p.datepaiement = %s
+                    WHERE p.datepaiement >= %s
+                      AND p.datepaiement < %s
                     ORDER BY e.nom
                 """
-                cur.execute(query, (date_cible,))
+
+                cur.execute(
+                    query,
+                    (date_cible, date_cible + timedelta(days=1))
+                )
+
                 results = cur.fetchall()
 
+        # Aucun paiement
         if not results:
             return f"""
             <h3 style="text-align:center;color:#c62828;">
@@ -2818,12 +2877,15 @@ def admin_journal_result():
             </div>
             """
 
+        # Calcul total
         total_jour = sum(r["fip"] or 0 for r in results)
 
+        # Génération lignes tableau (CORRIGÉE)
         rows = ""
-        for r in results:
+        for i, r in enumerate(results, start=1):
             rows += f"""
             <tr>
+                <td>{i}</td>
                 <td>{r['matricule']}</td>
                 <td>{r['nom']}</td>
                 <td>{r['classe']}</td>
@@ -2834,6 +2896,7 @@ def admin_journal_result():
             </tr>
             """
 
+        # HTML final
         return f"""
         <!DOCTYPE html>
         <html lang="fr">
@@ -2841,30 +2904,45 @@ def admin_journal_result():
             <meta charset="UTF-8">
             <title>Journal des paiements du {date_input}</title>
             <style>
-                body {{ font-family:"Bookman Old Style"; background:#f4f8ff; }}
+                body {{
+                    font-family: "Bookman Old Style";
+                    background: #f4f8ff;
+                }}
                 table {{
-                    width:90%;
-                    margin:40px auto;
+                    width: 90%;
+                    margin: 40px auto;
                     border-collapse: collapse;
-                    background:white;
+                    background: white;
                 }}
                 th, td {{
-                    border:1px solid #ccc;
-                    padding:10px;
-                    text-align:center;
+                    border: 1px solid #ccc;
+                    padding: 10px;
+                    text-align: center;
                 }}
-                th {{ background:#1976d2; color:white; }}
-                tfoot td {{ font-weight:bold; background:#e3f2fd; }}
-                h2 {{ text-align:center; color:#0d47a1; }}
+                th {{
+                    background: #1976d2;
+                    color: white;
+                }}
+                tfoot td {{
+                    font-weight: bold;
+                    background: #e3f2fd;
+                }}
             </style>
         </head>
         <body>
 
-        <h2>📘 Journal des paiements du {date_input}</h2>
+        <!-- EN-TÊTE AVEC LOGO -->
+        <div style="display:flex;align-items:center;padding:15px 40px;">
+            <img src="/static/images/logo_csnst.png" style="height:75px;">
+            <h2 style="margin-left:20px;color:#0d47a1;">
+                📘 Journal des paiements du {date_input}
+            </h2>
+        </div>
 
         <table>
             <thead>
                 <tr>
+                    <th>N°</th>
                     <th>Matricule</th>
                     <th>Nom</th>
                     <th>Classe</th>
@@ -2874,17 +2952,35 @@ def admin_journal_result():
                     <th>Reçu</th>
                 </tr>
             </thead>
-            <tbody>{rows}</tbody>
+            <tbody>
+                {rows}
+            </tbody>
             <tfoot>
                 <tr>
-                    <td colspan="5">TOTAL JOURNÉE</td>
-                    <td colspan="2">{total_jour}</td>
+                    <td colspan="6">TOTAL JOURNÉE</td>
+                    <td>{total_jour}</td>
+                    <td></td>
                 </tr>
             </tfoot>
         </table>
 
         <div style="text-align:center;">
             <a href="/admin/journal">← Retour</a>
+        </div>
+
+        <div style="text-align:center;margin:30px;">
+            <a href="/api/journal_pdf/{date_input}"
+               style="
+                display:inline-block;
+                padding:12px 30px;
+                background:#1976d2;
+                color:white;
+                text-decoration:none;
+                border-radius:10px;
+                font-size:16px;
+               ">
+                🖨️ Imprimer le PDF
+            </a>
         </div>
 
         </body>
@@ -2894,75 +2990,140 @@ def admin_journal_result():
     except Exception as e:
         print("❌ ERREUR admin_journal_result :", e)
         return f"Erreur serveur : {e}", 500
-
-
-#======================================
-#       api/journal_pdf/<date_iso>"
-#=======================================
+        
 
 @app.route("/api/journal_pdf/<date_iso>")
 @login_required
 def api_journal_pdf(date_iso):
-
     try:
+        date_cible = datetime.strptime(date_iso, "%Y-%m-%d").date()
+
         with psycopg.connect(DATABASE_URL) as conn:
             with conn.cursor(row_factory=dict_row) as cur:
-
                 cur.execute("""
                     SELECT
                         e.matricule,
                         e.nom,
                         e.classe,
+                        e.section,
                         p.mois,
-                        p.fip
+                        p.fip,
+                        p.numrecu
                     FROM paiements p
                     JOIN eleves e ON p.eleve_id = e.id
                     WHERE p.datepaiement = %s
                     ORDER BY e.nom
-                """, (date_iso,))
-
+                """, (date_cible,))
                 rows = cur.fetchall()
 
         if not rows:
-            return "Aucune donnée", 404
+            return "Aucune donnée à imprimer", 404
 
-        # 🔢 Calcul total journalier
         total = sum(r["fip"] or 0 for r in rows)
 
-        # 📁 Dossier temporaire compatible Render
+        # 📁 Dossier temporaire
         os.makedirs("temp", exist_ok=True)
-        file_path = os.path.join("temp", f"journal_{date_iso}.pdf")
+        path = f"temp/journal_{date_iso}.pdf"
 
-        # 🧾 Génération PDF
-        c = canvas.Canvas(file_path, pagesize=A4)
-        c.setFont("Helvetica", 9)
+        # 📄 DOCUMENT
+        doc = SimpleDocTemplate(
+            path,
+            pagesize=A4,
+            rightMargin=2*cm,
+            leftMargin=2*cm,
+            topMargin=2*cm,
+            bottomMargin=2*cm
+        )
 
-        y = 800
-        c.drawString(50, y, f"JOURNAL DES PAIEMENTS - {date_iso}")
-        y -= 25
+        elements = []
 
-        for r in rows:
-            c.drawString(
-                50, y,
-                f"{r['matricule']} | {r['nom']} | {r['classe']} | {r['mois']} | {r['fip']}"
-            )
-            y -= 14
+        # 🖼️ LOGO
+        logo_path = "static/images/logo_csnst.png"
+        if os.path.exists(logo_path):
+            logo = Image(logo_path, width=4*cm, height=3*cm)
+            elements.append(logo)
 
-            if y < 60:
-                c.showPage()
-                c.setFont("Helvetica", 9)
-                y = 800
+        elements.append(Spacer(1, 12))
 
-        y -= 20
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(50, y, f"TOTAL JOURNALIER : {total}")
+        # 🧾 TITRE
+        title_style = ParagraphStyle(
+            name="Title",
+            fontSize=14,
+            alignment=1,
+            spaceAfter=20
+        )
+        elements.append(
+            Paragraph(f"<b>Journal des paiements du {date_iso}</b>", title_style)
+        )
 
-        c.save()
-        return send_file(file_path, as_attachment=True)
+        # 📊 TABLEAU
+        table_data = [[
+            "N°", "Matricule", "Nom", "Classe",
+            "Section", "Mois", "Montant", "Reçu"
+        ]]
+
+        for i, r in enumerate(rows, start=1):
+            table_data.append([
+                i,
+                r["matricule"],
+                r["nom"],
+                r["classe"],
+                r["section"],
+                r["mois"],
+                r["fip"],
+                r["numrecu"]
+            ])
+
+        # TOTAL
+        table_data.append([
+            "", "", "", "", "", "TOTAL",
+            total, ""
+        ])
+
+        table = Table(
+            table_data,
+            colWidths=[1.2*cm, 2.2*cm, 5*cm, 1.7*cm, 1.7*cm, 1.7*cm, 2*cm, 2*cm]
+        )
+
+        table.setStyle(TableStyle([
+            ("GRID", (0,0), (-1,-1), 0.8, colors.grey),
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1976d2")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTNAME", (0,-1), (-1,-1), "Helvetica-Bold"),
+            ("BACKGROUND", (0,-1), (-1,-1), colors.HexColor("#e3f2fd")),
+        ]))
+
+        elements.append(table)
+                # 📌 FOOTER COMPTABILITÉ
+        footer_style = ParagraphStyle(
+            name="Footer",
+            fontSize=8,
+            alignment=1,   # centré
+            textColor=colors.grey,
+            spaceBefore=25
+        )
+
+        footer_text = """
+        <b>Comptabilité – CS Nsanga le Thanzie</b><br/>
+        165 Av Kasangulu, croisement de l’Église<br/>
+        Email : notificationnsangalethanzie@gmail.com<br/>
+        Tél : +243 974 773 760 | +243 970 292 522 |+243 996 537 573
+        """
+
+        elements.append(Spacer(1, 20))
+        elements.append(Paragraph(footer_text, footer_style))
+
+
+        doc.build(elements)
+
+        return send_file(path, as_attachment=True)
 
     except Exception as e:
-        print("❌ ERREUR api_journal_pdf :", e)
-        return f"Erreur serveur : {e}", 500
+        print("❌ ERREUR PDF JOURNAL :", e)
+        return f"Erreur PDF : {e}", 500
+
 
 
 # ===============================================================
