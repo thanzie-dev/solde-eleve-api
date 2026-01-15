@@ -134,6 +134,8 @@ ADMIN_PASSWORDS = [
     if p.strip()
 ]
 
+COMPTA_PASSWORD = os.environ.get("COMPTA_PASSWORD")
+
 # mots de passe admin
 
 
@@ -1174,19 +1176,27 @@ body {
 """
 
 
-@app.route("/admin/login", methods=["GET","POST"])
+@app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     error = None
 
     if request.method == "POST":
         pwd = request.form.get("password", "").strip()
 
-        # 🔐 Vérification des deux mots de passe autorisés
+        # 🔐 ACCÈS COMPTABILITÉ
+        if COMPTA_PASSWORD and pwd == COMPTA_PASSWORD:
+            session["admin_logged"] = True
+            session["admin_role"] = "comptabilite"
+            return redirect("/admin/dashboard/finance")
+
+        # 🔐 ACCÈS ADMIN GÉNÉRAL
         if pwd in ADMIN_PASSWORDS:
             session["admin_logged"] = True
-            return redirect(url_for("admin_dashboard"))
-        else:
-            error = "Mot de passe incorrect."
+            session["admin_role"] = "admin"
+            return redirect("/admin/dashboard")
+
+        # ❌ ÉCHEC
+        error = "Mot de passe incorrect."
 
     return render_template_string(LOGIN_FORM_HTML, error=error)
 
@@ -2475,7 +2485,7 @@ function fermerAide() {
     <a href="#">📘 Journal Paiements</a>
     <a href="#">📄 Rapports</a>
     <a href="#">📅 Statistiques</a>
-    <a href="#">🧾 Comptabilité</a>
+    <a href="/admin/dashboard/finance">🧾 Comptabilité</a>
     <a href="#">🖨️ Documents</a>
     <a href="#">⚙️ Paramètres</a>
     <a href="javascript:void(0)" onclick="ouvrirAide()">❓ Aide</a>
@@ -3123,6 +3133,254 @@ def api_journal_pdf(date_iso):
     except Exception as e:
         print("❌ ERREUR PDF JOURNAL :", e)
         return f"Erreur PDF : {e}", 500
+
+
+
+#================================================
+#  CODE FLASK — VERSION PRO AVEC COMMENTAIRES
+#================================================
+
+@app.route("/api/dashboard/finance")
+@login_required
+def api_dashboard_finance():
+    """
+    Tableau de bord financier – KPI principaux
+
+    Cette route retourne uniquement des indicateurs chiffrés,
+    sans HTML, afin d'être utilisée par :
+    - le dashboard web
+    - des graphiques
+    - une application mobile
+    """
+
+    try:
+        # ----------------------------------------------------
+        # 1️⃣ Connexion à la base de données
+        # ----------------------------------------------------
+        # Une seule connexion = performance + stabilité
+        conn = get_db_connection()
+        cur = conn.cursor(row_factory=dict_row)
+
+        # ----------------------------------------------------
+        # 2️⃣ KPI : Nombre total d'élèves
+        # ----------------------------------------------------
+        cur.execute("SELECT COUNT(*) AS total FROM eleves;")
+        nb_eleves = cur.fetchone()["total"]
+
+        # ----------------------------------------------------
+        # 3️⃣ KPI : Total encaissé (global)
+        # ----------------------------------------------------
+        cur.execute("SELECT COALESCE(SUM(fip), 0) AS total FROM paiements;")
+        total_encaisse = float(cur.fetchone()["total"])
+
+        # ----------------------------------------------------
+        # 4️⃣ KPI : Total encaissé pour le mois courant
+        # ----------------------------------------------------
+        # On calcule dynamiquement le début et la fin du mois
+        cur.execute("""
+            SELECT COALESCE(SUM(fip), 0) AS total
+            FROM paiements
+            WHERE datepaiement >= date_trunc('month', CURRENT_DATE)
+              AND datepaiement <  date_trunc('month', CURRENT_DATE) + interval '1 month';
+        """)
+        total_mois = float(cur.fetchone()["total"])
+
+        # ----------------------------------------------------
+        # 5️⃣ KPI : Nombre de classes actives
+        # ----------------------------------------------------
+        cur.execute("""
+            SELECT COUNT(DISTINCT classe) AS total
+            FROM eleves
+            WHERE classe IS NOT NULL;
+        """)
+        nb_classes = cur.fetchone()["total"]
+
+        # ----------------------------------------------------
+        # 6️⃣ KPI : Calcul du montant attendu (logique métier)
+        # ----------------------------------------------------
+        # On récupère toutes les classes des élèves
+        cur.execute("SELECT classe FROM eleves;")
+        classes = cur.fetchall()
+
+        total_attendu = 0
+
+        for row in classes:
+            # Pour chaque élève, on applique la règle FIP
+            fip_mensuel = get_fip_par_classe(row["classe"])
+            total_attendu += fip_mensuel * len(MOIS_SCOLAIRE)
+
+        # ----------------------------------------------------
+        # 7️⃣ KPI : Impayé estimé
+        # ----------------------------------------------------
+        impaye_estime = max(total_attendu - total_encaisse, 0)
+
+        # ----------------------------------------------------
+        # 8️⃣ Fermeture connexion
+        # ----------------------------------------------------
+        conn.close()
+
+        # ----------------------------------------------------
+        # 9️⃣ Réponse JSON propre et claire
+        # ----------------------------------------------------
+        return jsonify({
+            "nb_eleves": nb_eleves,
+            "nb_classes": nb_classes,
+            "total_encaisse": round(total_encaisse, 2),
+            "total_mois_courant": round(total_mois, 2),
+            "total_attendu": round(total_attendu, 2),
+            "impaye_estime": round(impaye_estime, 2)
+        })
+
+    except Exception as e:
+        print("❌ ERREUR KPI FINANCE :", e)
+        return jsonify({"error": "Erreur serveur KPI"}), 500
+
+#=========================
+# KPI HTML
+#=========================
+
+
+@app.route("/admin/dashboard/finance")
+@login_required
+def admin_dashboard_finance():
+    """
+    Page HTML du tableau de bord financier
+    (les données viennent de l'API /api/dashboard/finance)
+    """
+    return render_template_string(DASHBOARD_FINANCE_HTML)
+
+DASHBOARD_FINANCE_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard Financier</title>
+
+<style>
+body {
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(to right, #eef5ff, #ffffff);
+    margin: 0;
+}
+
+/* Header */
+.header {
+    display: flex;
+    align-items: center;
+    padding: 20px 40px;
+}
+.header img {
+    height: 60px;
+    margin-right: 20px;
+}
+.header h1 {
+    color: #0d47a1;
+}
+
+/* Grid KPI */
+.kpi-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 25px;
+    padding: 40px;
+}
+
+.kpi-card {
+    background: white;
+    padding: 25px;
+    border-radius: 16px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    text-align: center;
+}
+
+.kpi-title {
+    font-size: 15px;
+    color: #555;
+    margin-bottom: 10px;
+}
+
+.kpi-value {
+    font-size: 26px;
+    font-weight: bold;
+    color: #0d47a1;
+}
+
+/* Couleurs spécifiques */
+.green { color: #1b5e20; }
+.red   { color: #c62828; }
+.blue  { color: #0d47a1; }
+
+.footer {
+    text-align: center;
+    margin: 30px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+    <img src="/static/images/logo_csnst.png">
+    <h1>📊 Tableau de Bord Financier</h1>
+</div>
+
+<div class="kpi-container">
+
+    <div class="kpi-card">
+        <div class="kpi-title">Nombre d'élèves</div>
+        <div class="kpi-value blue" id="nb_eleves">--</div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-title">Classes actives</div>
+        <div class="kpi-value blue" id="nb_classes">--</div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-title">Total attendu</div>
+        <div class="kpi-value blue" id="total_attendu">--</div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-title">Total encaissé</div>
+        <div class="kpi-value green" id="total_encaisse">--</div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-title">Encaissement du mois</div>
+        <div class="kpi-value green" id="total_mois">--</div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-title">Impayés estimés</div>
+        <div class="kpi-value red" id="impaye">--</div>
+    </div>
+
+</div>
+
+<div class="footer">
+    <a href="/admin/dashboard">← Retour menu admin</a>
+</div>
+
+<script>
+fetch("/api/dashboard/finance")
+.then(r => r.json())
+.then(data => {
+    document.getElementById("nb_eleves").textContent = data.nb_eleves;
+    document.getElementById("nb_classes").textContent = data.nb_classes;
+    document.getElementById("total_attendu").textContent = data.total_attendu + " $";
+    document.getElementById("total_encaisse").textContent = data.total_encaisse + " $";
+    document.getElementById("total_mois").textContent = data.total_mois_courant + " $";
+    document.getElementById("impaye").textContent = data.impaye_estime + " $";
+});
+</script>
+
+</body>
+</html>
+"""
+
+
+
 
 
 
