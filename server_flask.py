@@ -3294,7 +3294,7 @@ body {
 }
 
 .kpi-title {
-    font-size: 15px;
+    font-size: 18px;
     color: #555;
     margin-bottom: 10px;
 }
@@ -3375,11 +3375,441 @@ fetch("/api/dashboard/finance")
 });
 </script>
 
+<!-- module pour les graphiques2 -->
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- module pour les graphiques3 -->
+
+<!-- GRAPHIQUE ENCAISSEMENT MENSUEL -->
+<div style="
+    width:85%;
+    max-width:900px;
+    margin:40px auto;
+    background:white;
+    padding:25px;
+    border-radius:14px;
+    box-shadow:0 6px 20px rgba(0,0,0,0.15);
+">
+
+
+    <h2 style="
+        text-align:center;
+        font-family:'Bookman Old Style', serif;
+        color:#0d47a1;
+        margin-bottom:30px;
+    ">
+        📈 Évolution des encaissements mensuels
+    </h2>
+
+    <canvas id="monthlyChart" height="100"></canvas>
+
+</div>
+
+
+<!-- GRAPHIQUE COMPARATIF -->
+
+<div style="
+    width:85%;
+    max-width:900px;
+    margin:40px auto;
+    background:white;
+    padding:25px;
+    border-radius:14px;
+    box-shadow:0 6px 20px rgba(0,0,0,0.15);
+">
+
+
+    <h2 style="
+        text-align:center;
+        font-family:'Bookman Old Style', serif;
+        color:#0d47a1;
+        margin-bottom:30px;
+    ">
+        📊 Comparaison financière globale
+    </h2>
+
+    <canvas id="compareChart" height="80"></canvas>
+
+</div>
+
+<!-- GRAPHIQUE RÉPARTITION PAR SECTION -->
+
+
+<div style="
+    width:85%;
+    max-width:850px;
+    height:360px;               /* 🔒 HAUTEUR FIXE */
+    margin:40px auto;
+    background:white;
+    padding:25px;
+    border-radius:14px;
+    box-shadow:0 6px 20px rgba(0,0,0,0.15);
+">
+
+    <h2 style="
+        text-align:center;
+        font-family:'Bookman Old Style', serif;
+        color:#0d47a1;
+        margin-bottom:20px;
+    ">
+        🍩 Répartition des encaissements par section
+    </h2>
+
+    <canvas id="sectionChart"></canvas>
+</div>
+
+
+
+
+<!-- SECTION EXPLICATIVE (BANDE BLUE) -->
+
+<div style="
+    background:#0d47a1;
+    color:white;
+    padding:50px 60px;
+    margin-top:40px;
+    font-family:'Bookman Old Style', serif;
+    font-size:24px;
+">
+
+    <h2 style="
+        text-align:center;
+        margin-bottom:30px;
+        font-size:28px;
+    ">
+        📘 Comprendre le tableau de bord financier
+    </h2>
+
+    <p style="line-height:1.8;">
+        Ce tableau de bord financier offre une vue synthétique et stratégique
+        de la situation financière de l’établissement scolaire. Il permet à
+        l’administration et à la comptabilité de suivre les encaissements,
+        d’anticiper les manques à gagner et de prendre des décisions éclairées.
+    </p>
+
+    <ul style="line-height:1.9;margin-top:25px;">
+        <li><strong>Nombre d’élèves :</strong> total des élèves inscrits et actifs dans le système.</li>
+
+        <li><strong>Classes actives :</strong> nombre de classes réellement opérationnelles
+        pour l’année scolaire en cours.</li>
+
+        <li><strong>Total attendu :</strong> montant théorique que l’école devrait percevoir
+        si tous les élèves s’acquittaient intégralement de leurs frais scolaires.</li>
+
+        <li><strong>Total encaissé :</strong> somme effectivement perçue par l’établissement
+        depuis le début de l’année scolaire.</li>
+
+        <li><strong>Encaissement du mois :</strong> montant collecté uniquement pour le mois
+        en cours, utile pour le suivi mensuel.</li>
+
+        <li><strong>Impayé estimé :</strong> différence entre le total attendu et le total encaissé,
+        représentant les montants restant à recouvrer.</li>
+    </ul>
+
+    <p style="line-height:1.8;margin-top:25px;">
+        Une bonne lecture de ces indicateurs permet d’assurer une gestion saine,
+        transparente et durable des finances scolaires, garantissant ainsi la
+        continuité des activités pédagogiques et administratives.
+    </p>
+</div>
+
+
+<!-- BANDE INSTITUTIONNELLE (bande Rouge) -->
+<div style="
+    background:#c62828;
+    color:white;
+    padding:20px;
+    text-align:center;
+    font-family:'Bookman Old Style', serif;
+    font-size:18px;
+">
+    Comptabilité CS Nsanga le Thanzie —  
+    165 Av Kasangulu, croisement de l’Église |
+    Email : notificationnsangalethanzie@gmail.com |
+    Tél : +243 974 773 760 / +243 995 682 745
+</div>
+
+
+
+
+<!-- Scripts module pour les graphiques par mois -->
+
+<script>
+fetch("/api/dashboard/finance/monthly")
+.then(res => res.json())
+.then(data => {
+
+    const ctx = document.getElementById("monthlyChart").getContext("2d");
+
+    new Chart(ctx, {
+        type: "line",
+        data: {
+            labels: data.labels,
+            datasets: [{
+                label: "Montant encaissé (FIP)",
+                data: data.values,
+                borderColor: "#1976d2",
+                backgroundColor: "rgba(25,118,210,0.15)",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 5,
+                pointBackgroundColor: "#0d47a1"
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    labels: {
+                        font: {
+                            family: "Bookman Old Style",
+                            size: 14
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        font: {
+                            family: "Bookman Old Style",
+                            size: 14
+                        }
+                    }
+                },
+                y: {
+                    ticks: {
+                        font: {
+                            family: "Bookman Old Style",
+                            size: 14
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+
+
+<!-- 📊 Graphique comparatif Total attendu vs Total encaissé-->
+
+<script>
+fetch("/api/dashboard/finance")
+.then(res => res.json())
+.then(data => {
+
+    const ctx = document.getElementById("compareChart").getContext("2d");
+
+    new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels: ["Attendu", "Encaissé", "Impayé"],
+            datasets: [{
+                label: "Montants (FIP)",
+                data: [
+                    data.total_attendu,
+                    data.total_encaisse,
+                    data.impaye_estime
+                ],
+                backgroundColor: [
+                    "#1976d2",
+                    "#2e7d32",
+                    "#c62828"
+                ],
+                borderRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            /* ❌ ON SUPPRIME maintainAspectRatio:false */
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        font: {
+                            family: "Bookman Old Style",
+                            size: 14
+                        }
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        font: {
+                            family: "Bookman Old Style",
+                            size: 14
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+
+
+<script>
+fetch("/api/dashboard/finance/by_section")
+.then(res => res.json())
+.then(data => {
+
+    const ctx = document.getElementById("sectionChart");
+
+    new Chart(ctx, {
+        type: "doughnut",
+        data: {
+            labels: data.labels,
+            datasets: [{
+                data: data.values,
+                backgroundColor: [
+                    "#1976d2",
+                    "#2e7d32",
+                    "#fb8c00",
+                    "#6a1b9a",
+                    "#c62828",
+                    "#00838f",
+                    "#558b2f",
+                    "#455a64"
+                ]
+            }]
+        },
+        options: {
+            responsive: true,          // ✅ OUI
+            maintainAspectRatio: true, // ✅ OBLIGATOIRE POUR DOUGHNUT
+
+            plugins: {
+                legend: {
+                    position: "bottom",
+                    labels: {
+                        font: {
+                            family: "Bookman Old Style",
+                            size: 13
+                        },
+                        padding: 12
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return (
+                                context.label +
+                                " : " +
+                                context.raw.toLocaleString() +
+                                " FIP"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+
+
+
+
+
+
 </body>
 </html>
 """
+#==============================
+# module pour les graphiques 1
+#=============================
 
+@app.route("/api/dashboard/finance/monthly")
+@login_required
+def api_dashboard_finance_monthly():
+    """
+    Retourne les montants encaissés par mois scolaire
+    pour affichage graphique (Chart.js)
+    """
 
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(row_factory=dict_row)
+
+        # Mois scolaires officiels (ordre fixe)
+        mois_ordre = MOIS_SCOLAIRE
+
+        # Initialisation à 0
+        data = {m: 0 for m in mois_ordre}
+
+        # Requête PostgreSQL
+        cur.execute("""
+            SELECT mois, COALESCE(SUM(fip),0) AS total
+            FROM paiements
+            GROUP BY mois;
+        """)
+
+        rows = cur.fetchall()
+
+        for r in rows:
+            mois_norm = canonical_month(r["mois"])
+            if mois_norm in data:
+                data[mois_norm] += float(r["total"])
+
+        conn.close()
+
+        return jsonify({
+            "labels": mois_ordre,
+            "values": [round(data[m], 2) for m in mois_ordre]
+        })
+
+    except Exception as e:
+        print("❌ ERREUR KPI MENSUEL :", e)
+        return jsonify({"error": "Erreur graphique mensuel"}), 500
+        
+        
+      
+
+      
+#===================================================
+# Graphique de répartition des paiements par section
+#==============================  =================     
+        
+        
+@app.route("/api/dashboard/finance/by_section")
+@login_required
+def api_dashboard_finance_by_section():
+    """
+    Répartition financière par section
+    Version stable et optimisée pour graphique doughnut
+    """
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(row_factory=dict_row)
+
+        cur.execute("""
+            SELECT
+                COALESCE(e.section, 'Non définie') AS section,
+                SUM(p.fip) AS total
+            FROM paiements p
+            JOIN eleves e ON p.eleve_id = e.id
+            GROUP BY e.section
+            HAVING SUM(p.fip) > 0
+            ORDER BY total DESC;
+        """)
+
+        rows = cur.fetchall()
+        conn.close()
+
+        return jsonify({
+            "labels": [r["section"] for r in rows],
+            "values": [float(r["total"]) for r in rows]
+        })
+
+    except Exception as e:
+        print("❌ ERREUR API SECTION :", e)
+        return jsonify({"error": "Erreur répartition section"}), 500
 
 
 
