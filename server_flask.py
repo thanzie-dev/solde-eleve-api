@@ -3,7 +3,7 @@
 # ===============================================================
 
 from flask import (
-    Flask, jsonify, request,
+    Flask, jsonify, request,render_template,
     render_template_string, redirect,
     url_for, session, send_file
 )
@@ -37,6 +37,10 @@ import import_excel_pg as import_excel
 # ===============================================================
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
+
+def get_conn():
+    return psycopg.connect(DATABASE_URL)
 
 
 def canonical_classe(raw):
@@ -126,6 +130,389 @@ def fetch_one(query, params=None):
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "BJ2KEL24")
+
+
+def login_user(role):
+    session["role"] = role
+
+def logout_user():
+    session.pop("role", None)
+
+def current_role():
+    return session.get("role")
+
+#==============================
+# DÉCORATEURS DE SÉCURITÉ (PRO)
+#===============================
+
+def require_role(*roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            role = session.get("role")
+            if role not in roles:
+                return redirect(url_for("login"))
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+    
+    
+
+#================
+#  ROUTE LOGIN
+#================
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+
+    if request.method == "POST":
+        password = request.form.get("password", "").strip()
+
+        if password in ADMIN_PASSWORDS:
+            login_user("admin")
+            return redirect(url_for("resume_journalier"))
+
+        if COMPTA_PASSWORD and password == COMPTA_PASSWORD:
+            login_user("compta")
+            return redirect(url_for("resume_journalier"))
+
+        error = "Mot de passe incorrect"
+
+    return render_template("login.html", error=error)
+
+
+
+#====================
+#  ROUTE DECONNEXION
+#====================
+
+
+@app.route("/logout")
+def logout():
+    logout_user()
+    return redirect(url_for("login"))
+
+
+
+@app.route("/test")
+def test():
+    return render_template("test.html")
+
+
+@app.route("/db-test")
+def db_test():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM caisse_journaliere")
+            total = cur.fetchone()[0]
+
+    return render_template("db_test.html", total=total)
+
+
+@app.route("/caisse-list")
+def caisse_list():
+    annee = request.args.get("annee_scolaire")
+    date_debut = request.args.get("date_debut")
+    date_fin = request.args.get("date_fin")
+
+    where = []
+    params = []
+
+    if annee:
+        where.append("annee_scolaire = %s")
+        params.append(annee)
+
+    if date_debut:
+        where.append("date_operation >= %s")
+        params.append(date_debut)
+
+    if date_fin:
+        where.append("date_operation <= %s")
+        params.append(date_fin)
+
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+
+    query = f"""
+        SELECT
+            date_operation,
+            (report + bloc1 + bloc2 + bus1 + bus2) AS total
+        FROM caisse_journaliere
+        {where_sql}
+        ORDER BY date_operation
+        LIMIT 100
+    """
+
+    with get_conn() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+    return render_template(
+        "caisse_list.html",
+        rows=rows,
+        annee=annee,
+        date_debut=date_debut,
+        date_fin=date_fin
+    )
+
+
+@app.route("/solde-list")
+def solde_list():
+    annee = request.args.get("annee_scolaire")
+    date_debut = request.args.get("date_debut")
+    date_fin = request.args.get("date_fin")
+
+    where = []
+    params = []
+
+    if annee:
+        where.append("c.annee_scolaire = %s")
+        params.append(annee)
+
+    if date_debut:
+        where.append("c.date_operation >= %s")
+        params.append(date_debut)
+
+    if date_fin:
+        where.append("c.date_operation <= %s")
+        params.append(date_fin)
+
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+
+    query = f"""
+    SELECT
+        c.date_operation,
+        c.annee_scolaire,
+        c.report,
+        c.bloc1,
+        c.bloc2,
+        c.bus1,
+        c.bus2,
+        (c.bloc1 + c.bloc2 + c.bus1 + c.bus2) AS tot_entr,
+        COUNT(d.id) AS nb_depenses,
+        COALESCE(SUM(d.montant), 0) AS total_dep,
+        COALESCE(SUM(d.banque), 0) AS banque,
+        (
+            (c.bloc1 + c.bloc2 + c.bus1 + c.bus2 + c.report)
+            - (COALESCE(SUM(d.montant), 0) + COALESCE(SUM(d.banque), 0))
+        ) AS solde
+    FROM caisse_journaliere c
+    LEFT JOIN depense d
+      ON d.date_depense = c.date_operation
+     AND d.annee_scolaire = c.annee_scolaire
+    {where_sql}
+    GROUP BY
+        c.date_operation,
+        c.annee_scolaire,
+        c.report,
+        c.bloc1, c.bloc2, c.bus1, c.bus2
+    ORDER BY c.date_operation
+    LIMIT 100
+    """
+
+
+    with get_conn() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+    return render_template(
+        "solde_list.html",
+        rows=rows,
+        annee=annee,
+        date_debut=date_debut,
+        date_fin=date_fin
+    )
+
+
+
+@app.route("/depenses-list")
+def depenses_list():
+    annee = request.args.get("annee_scolaire")
+    date_debut = request.args.get("date_debut")
+    date_fin = request.args.get("date_fin")
+
+    where = []
+    params = []
+
+    if annee:
+        where.append("annee_scolaire = %s")
+        params.append(annee)
+
+    if date_debut:
+        where.append("date_depense >= %s")
+        params.append(date_debut)
+
+    if date_fin:
+        where.append("date_depense <= %s")
+        params.append(date_fin)
+
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+
+    query = f"""
+        SELECT
+            date_depense,
+            ref_dp,
+            libelle,
+            montant,
+            banque
+        FROM depense
+        {where_sql}
+        ORDER BY date_depense
+        LIMIT 100
+    """
+
+    with get_conn() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+    return render_template(
+        "depenses.html",
+        rows=rows,
+        annee=annee,
+        date_debut=date_debut,
+        date_fin=date_fin
+    )
+
+
+@app.route("/resume-journalier")
+@require_role("admin", "compta")
+def resume_journalier():
+
+    # --- paramètres ---
+    annee = request.args.get("annee", "2025-2026")
+    date_debut = request.args.get("date_debut")
+    date_fin = request.args.get("date_fin")
+
+    # --- WHERE dynamique ---
+    where_clauses = ["c.annee_scolaire = %s"]
+    params = [annee]
+
+    if date_debut:
+        where_clauses.append("c.date_operation >= %s")
+        params.append(date_debut)
+
+    if date_fin:
+        where_clauses.append("c.date_operation <= %s")
+        params.append(date_fin)
+
+    where_sql = "WHERE " + " AND ".join(where_clauses)
+
+    # --- requête SQL ---
+    query = f"""
+        SELECT
+            c.date_operation AS date_jour,
+            c.annee_scolaire,
+
+            c.report,
+            c.bloc1,
+            c.bloc2,
+            c.bus1,
+            c.bus2,
+
+            (c.bloc1 + c.bloc2 + c.bus1 + c.bus2) AS tot_entr,
+
+            COUNT(d.id)                 AS nb_depenses,
+            COALESCE(SUM(d.montant),0)  AS total_depenses,
+            COALESCE(SUM(d.banque),0)   AS banque,
+
+            (
+                (c.bloc1 + c.bloc2 + c.bus1 + c.bus2 + c.report)
+                - (COALESCE(SUM(d.montant),0) + COALESCE(SUM(d.banque),0))
+            ) AS solde
+
+        FROM caisse_journaliere c
+        LEFT JOIN depense d
+          ON d.date_depense = c.date_operation
+         AND d.annee_scolaire = c.annee_scolaire
+
+        {where_sql}
+
+        GROUP BY
+            c.date_operation,
+            c.annee_scolaire,
+            c.report,
+            c.bloc1, c.bloc2, c.bus1, c.bus2
+
+        ORDER BY c.date_operation
+    """
+
+    rows = fetch_all(query, tuple(params))
+
+    # --- totaux généraux ---
+    totaux = {
+        "bloc1": 0,
+        "bloc2": 0,
+        "bus1": 0,
+        "bus2": 0,
+        "tot_entr": 0,
+        "total_depenses": 0,
+        "banque": 0,
+        "solde": 0
+    }
+
+    for r in rows:
+        totaux["bloc1"] += r["bloc1"]
+        totaux["bloc2"] += r["bloc2"]
+        totaux["bus1"] += r["bus1"]
+        totaux["bus2"] += r["bus2"]
+        totaux["tot_entr"] += r["tot_entr"]
+        totaux["total_depenses"] += r["total_depenses"]
+        totaux["banque"] += r["banque"]
+        totaux["solde"] += r["solde"]
+
+    return render_template(
+        "resume_journalier.html",
+        rows=rows,
+        totaux=totaux,
+        annee=annee,
+        date_debut=date_debut,
+        date_fin=date_fin
+    )
+
+@app.route("/depenses-par-date")
+def depenses_par_date():
+
+    date_jour = request.args.get("date")
+    annee = request.args.get("annee")
+
+    if not date_jour or not annee:
+        return jsonify({"error": "Paramètres manquants"}), 400
+
+    query = """
+        SELECT
+            d.id,
+            d.ref_dp,
+            d.libelle,
+            d.montant,
+            d.annee_scolaire
+        FROM depense d
+        WHERE d.date_depense = %s
+          AND d.annee_scolaire = %s
+        ORDER BY d.id
+    """
+
+    rows = fetch_all(query, (date_jour, annee))
+
+    return jsonify({
+        "date": date_jour,
+        "annee": annee,
+        "nb": len(rows),
+        "depenses": rows
+    })
+
+
+
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
 
 
 ADMIN_PASSWORDS = [
@@ -2378,6 +2765,91 @@ marquee {
     text-align: center;
     font-size: 16px;
 }
+
+/* =========================
+   EN-TÊTE ADMIN PANEL
+   ========================= */
+
+.admin-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    padding: 20px 30px;
+    gap: 25px;
+}
+
+.admin-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.admin-logo {
+    height: 70px;
+}
+
+.admin-band {
+    width: 340px;
+}
+
+.band-blue {
+    height: 7px;
+    background: #0d47a1;
+}
+
+.band-red {
+    height: 7px;
+    background: #c62828;
+}
+
+.admin-marquee {
+    height: 26px;
+    overflow: hidden;
+    position: relative;
+    background: #fff;
+}
+
+.admin-marquee span {
+    position: absolute;
+    white-space: nowrap;
+    font-size: 14px;
+    font-weight: bold;
+    color: #0d47a1;
+    animation: scroll-left 14s linear infinite;
+}
+
+.admin-center {
+    text-align: center;
+}
+
+.btn-caisse {
+    padding: 16px 32px;
+    background: #1976d2;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    border-radius: 12px;
+    text-decoration: none;
+}
+
+.btn-caisse:hover {
+    background: #0d47a1;
+}
+
+.admin-right {
+    text-align: right;
+    font-family: "Bookman Old Style", serif;
+    font-size: 16px;
+    font-weight: bold;
+    color: #0d47a1;
+}
+
+@keyframes scroll-left {
+    from { transform: translateX(100%); }
+    to { transform: translateX(-100%); }
+}
+
+
 </style>
 </head>
 
@@ -2461,21 +2933,54 @@ function fermerAide() {
 
 <body>
 
-<div class="header">
-    <h1>CS NSANGA LE THANZIE</h1>
-    <img src="/static/images/logo_csnst.png">
+
+<!-- ================= EN-TÊTE ADMIN PRO ================= -->
+<div class="admin-header">
+
+    <!-- GAUCHE : logo + bandes + texte défilant -->
+    <div class="admin-left">
+        <img src="/static/images/logo_csnst.png" class="admin-logo">
+
+        <div class="admin-band">
+            <div class="band-blue"></div>
+            <div class="band-red"></div>
+            <div class="admin-marquee">
+                <span>
+                    Gestion comptable — Suivi de la caisse — Contrôle des dépenses — Transparence financière
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CENTRE : bouton principal -->
+    <div class="admin-center">
+        <a href="/login" class="btn-caisse">
+            💼 GESTION CAISSE
+        </a>
+    </div>
+
+    <!-- DROITE : nom école -->
+    <div class="admin-right">
+        COMPLEXE SCOLAIRE<br>
+        NSANGA LE THANZIE
+    </div>
+
 </div>
 
-<div class="band-blue"></div>
 
-<div class="marquee-box">
+<!-- ================= FIN EN-TÊTE ADMIN ================= -->
+
+
+<!-- <div class="band-blue"></div> -->
+
+<!-- <div class="marquee-box">
     <marquee>
         Complexe Scolaire Nsanga le Thanzie : . Pour consulter les FIPs de vos élèves :Cliquez sur le bouton Gestion Élève. Saisissez votre numéro de téléphone. Validez votre saisie. Sélectionnez ensuite le PL ou le LT de l’élève concerné.Merci pour votre confiance.
 
     </marquee>
-</div>
+ </div>  -->
 
-<div class="band-red"></div>
+<!--<div class="band-red"></div> -->
 
 <div class="panel">
     <h2>PANNEAU ADMIN</h2>
@@ -2506,9 +3011,12 @@ function fermerAide() {
 """
 
 @app.route("/admin1/panel")
+#@require_role("admin")
 def admin1_panel():
     return render_template_string(ADMIN1_PANEL_HTML)
-    
+
+
+
     
 # ===============
 # GESTION ELEVES
@@ -3812,6 +4320,37 @@ def api_dashboard_finance_by_section():
         return jsonify({"error": "Erreur répartition section"}), 500
 
 
+@app.route("/api/depenses-par-date")
+@require_role("admin", "compta")
+def api_depenses_par_date():
+
+    date_jour = request.args.get("date")
+    annee = request.args.get("annee")
+
+    if not date_jour or not annee:
+        return jsonify({"error": "date ou année manquante"}), 400
+
+    query = """
+        SELECT
+            d.id,
+            d.ref_dp,
+            d.libelle,
+            d.montant,
+            d.annee_scolaire
+        FROM depense d
+        WHERE d.date_depense = %s
+          AND d.annee_scolaire = %s
+        ORDER BY d.id
+    """
+
+    rows = fetch_all(query, (date_jour, annee))
+
+    return jsonify({
+        "date": date_jour,
+        "annee": annee,
+        "nb": len(rows),
+        "depenses": rows
+    })
 
 
 # ===============================================================

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Accueil{% endblock %}
+
+{% block content %}
+<h1>Tableau de bord</h1>
+
+<p>
+    Bienvenue dans l’application de gestion de la caisse
+    et des dépenses scolaires.
+</p>
+
+<ul>
+    <li><a href="/caisse-list">Voir la caisse journalière</a></li>
+    <li><a href="/solde-list">Voir le solde journalier</a></li>
+    <li><a href="/db-test">Test connexion base</a></li>
+</ul>
+{% endblock %}

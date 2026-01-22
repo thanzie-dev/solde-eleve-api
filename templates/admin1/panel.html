@@ -1,0 +1,139 @@
+ ADMIN1_PANEL_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Panel Administrateur</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='admin1.css') }}">
+<script src="{{ url_for('static', filename='admin1.js') }}" defer></script>
+
+</head>
+
+<!-- ================= MODALE AIDE ================= -->
+<div id="aideModal" style="
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.5);
+    z-index:999;
+">
+    <div style="
+        background:white;
+        width:420px;
+        margin:100px auto;
+        padding:25px;
+        border-radius:14px;
+        box-shadow:0 10px 30px rgba(0,0,0,0.25);
+        font-family:'Bookman Old Style', serif;
+    ">
+        <h3 style="color:#0d47a1;text-align:center;">
+            ❓ Comment consulter les frais d’un élève
+        </h3>
+
+        <p style="font-size:14px;line-height:1.6;">
+            Cette application permet de consulter les informations de paiement
+            des frais scolaires d’un élève en suivant les étapes ci-dessous :
+        </p>
+
+        <div style="
+            background:#e3f2fd;
+            padding:12px;
+            border-radius:10px;
+            font-size:14px;
+            line-height:1.8;
+        ">
+            <b>1.</b> Depuis le panel, cliquez sur <b>Gestion Élèves</b><br>
+            <b>2.</b> Vous arrivez sur la page <b> GESTION DES ELEVE</b><br>
+            <b>3.</b> Saisissez le <b>numéro de téléphone</b> parent ou de l’élève<br>
+            <b>4.</b> Cliquez sur le bouton <b>FIP ÉLÈVE</b><br>
+            <b>5.</b> Le système affiche le ou les <b>numéros matricules</b><br>
+            <b>6.</b> Cliquez sur le <b>numéro matricule</b><br>
+            <b>7.</b> Les <b>informations de paiement</b> s’affichent
+        </div>
+
+        <p style="font-size:13px;margin-top:12px;color:#444;">
+            ℹ️ Ce processus est entièrement public et ne nécessite pas
+            de connexion administrateur.
+        </p>
+
+        <button onclick="fermerAide()" style="
+            margin-top:15px;
+            width:100%;
+            padding:10px;
+            border:none;
+            border-radius:10px;
+            background:#1976d2;
+            color:white;
+            font-size:15px;
+            cursor:pointer;
+        ">
+            Fermer
+        </button>
+    </div>
+</div>
+<!-- ================= MODALE AIDE FIN ================= -->
+
+
+<body>
+
+<!-- ================= EN-TÊTE ADMIN ================= -->
+<div class="header">
+    <h1>CS NSANGA LE THANZIE</h1>
+    <img src="/static/images/logo_csnst.png">
+</div>
+
+    <!-- CENTRE : bouton gestion caisse -->
+    <div class="admin-center">
+        <a href="/login" class="btn-caisse">
+            💼 Gestion caisse
+        </a>
+    </div>
+
+    <!-- DROITE : nom école -->
+    <div class="admin-right">
+        COMPLEXE SCOLAIRE<br>
+        NSANGA LE THANZIE
+    </div>
+
+</div>
+<!-- ================= FIN EN-TÊTE ADMIN ================= -->
+
+
+<div class="band-blue"></div>
+
+<div class="marquee-box">
+    <marquee>
+        Complexe Scolaire Nsanga le Thanzie : . Pour consulter les FIPs de vos élèves :Cliquez sur le bouton Gestion Élève. Saisissez votre numéro de téléphone. Validez votre saisie. Sélectionnez ensuite le PL ou le LT de l’élève concerné.Merci pour votre confiance.
+
+    </marquee>
+</div>
+
+<div class="band-red"></div>
+
+<div class="panel">
+    <h2>PANNEAU ADMIN</h2>
+
+    <a href="/admin/login">🔐 Connexion Administrateur</a>
+    <a href="/admin1/gestion_eleve">📊 Gestion Élèves</a>
+    <a href="#">📘 Journal Paiements</a>
+    <a href="#">📄 Rapports</a>
+    <a href="#">📅 Statistiques</a>
+    <a href="/admin/dashboard/finance">🧾 Comptabilité</a>
+    <a href="#">🖨️ Documents</a>
+    <a href="#">⚙️ Paramètres</a>
+    <a href="javascript:void(0)" onclick="ouvrirAide()">❓ Aide</a>
+
+</div>
+
+<div class="footer-info">
+    <b>Complexe Scolaire Nsanga le Thanzie</b><br>
+     165 Av : Kasangu croisement de l'Eglise–Q/Gambela2 - C/Lubumbashi - RDC <br>
+            Tél : +24397 477 37 60 - 
+       Email : serveurthanzie@gmail.com -
+  Facebook : Nsanga Thanzie - Youtube: nsanga le thanzie ecole
+           Site : csnsangalethanzie.org
+</div>
+
+</body>
+</html>
+"""

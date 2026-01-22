@@ -1,0 +1,313 @@
+/* =====================================================
+   BASE GÉNÉRALE
+   ===================================================== */
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background-color: #f4f6f8;
+    margin: 0;
+}
+
+main {
+    padding: 20px;
+}
+
+/* =====================================================
+   NAVIGATION & HEADER SIMPLE
+   ===================================================== */
+
+header {
+    background-color: #2c3e50;
+    color: white;
+    padding: 15px;
+}
+
+header h2 {
+    margin: 0 0 10px 0;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    margin-right: 15px;
+    font-weight: bold;
+}
+
+nav a:hover {
+    text-decoration: underline;
+}
+
+nav a.active {
+    background-color: #1abc9c;
+    padding: 6px 10px;
+    border-radius: 4px;
+}
+
+/* =====================================================
+   BASE TABLES (COMMUNE À TOUS LES TABLEAUX)
+   ===================================================== */
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: white;
+    font-size: 14px;
+}
+
+th, td {
+    padding: 6px 8px;
+    border: 1px solid #cfcfcf;
+}
+
+th {
+    background-color: #eee;
+    text-align: center;
+    font-weight: bold;
+}
+
+td {
+    text-align: right;
+}
+
+/* =====================================================
+   FORMULAIRES
+   ===================================================== */
+
+form {
+    margin-bottom: 15px;
+    padding: 10px;
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+}
+
+form label {
+    font-weight: bold;
+}
+
+button {
+    padding: 6px 12px;
+    margin-left: 10px;
+    cursor: pointer;
+}
+
+/* =====================================================
+   EN-TÊTE INSTITUTIONNEL
+   ===================================================== */
+
+.header-container {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 15px;
+    padding: 10px;
+    border-bottom: 3px solid #2c3e50;
+    margin-bottom: 15px;
+}
+
+/* GAUCHE : LOGO + BANDE */
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.header-left img {
+    height: 70px;
+}
+
+/* Bande bleu / rouge */
+.header-band {
+    width: 220px;
+}
+
+.band-blue {
+    height: 6px;
+    background-color: #0033a0;
+}
+
+.band-red {
+    height: 6px;
+    background-color: #c0392b;
+}
+
+/* Texte défilant */
+.scrolling-text {
+    height: 24px;
+    overflow: hidden;
+    background: #f8f9fa;
+    position: relative;
+}
+
+.scrolling-text span {
+    position: absolute;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: bold;
+    color: #2c3e50;
+    animation: scroll-left 12s linear infinite;
+}
+
+/* CENTRE : TITRE */
+.header-center {
+    text-align: center;
+    font-family: "Bookman Old Style", "Times New Roman", serif;
+    font-size: 20px;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: #2c3e50;
+}
+
+/* DROITE : NOM COMPLEXE */
+.header-right {
+    text-align: right;
+    font-family: "Bookman Old Style", "Times New Roman", serif;
+    font-size: 16px;
+    font-weight: bold;
+    color: #2c3e50;
+    line-height: 1.2;
+}
+
+/* Animation texte */
+@keyframes scroll-left {
+    from {
+        transform: translateX(100%);
+    }
+    to {
+        transform: translateX(-100%);
+    }
+}
+
+/* =====================================================
+   TABLEAU RÉSUMÉ JOURNALIER
+   ===================================================== */
+
+.group-header th {
+    background-color: #2c3e50;
+    color: #ffffff;
+    font-size: 15px;
+}
+
+.sub-header th {
+    background-color: #ecf0f1;
+    font-weight: bold;
+}
+
+/* Colonnes spécifiques */
+td:first-child {
+    text-align: center;
+    font-weight: bold;
+}
+
+/* Entrées */
+td.entree {
+    color: #1f4ed8;
+}
+
+/* Dépenses */
+td.depense {
+    color: #c0392b;
+}
+
+/* Solde */
+td.solde {
+    font-weight: bold;
+}
+
+td.solde.negatif {
+    color: #c0392b;
+    background-color: #fdecea;
+}
+
+td.solde.positif {
+    color: #1e8449;
+    background-color: #eafaf1;
+}
+
+/* Total */
+tfoot tr {
+    background-color: #f5f5f5;
+    font-weight: bold;
+}
+
+/* =====================================================
+   BOUTON DÉTAILS
+   ===================================================== */
+
+.btn-detail {
+    margin-top: 4px;
+    padding: 3px 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.btn-detail:hover {
+    background-color: #2c3e50;
+    color: white;
+}
+
+/* =====================================================
+   PANNEAU DÉPENSES (DÉTAILS)
+   ===================================================== */
+
+.depenses-panel {
+    margin-top: 20px;
+    padding: 15px;
+    border: 1px solid #ccc;
+    background: #f9fafb;
+}
+
+#depenses-info {
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+#depenses-table th {
+    background-color: #2c3e50;
+    color: white;
+}
+
+#depenses-table td {
+    text-align: left;
+}
+
+/* =========================
+   LIEN DÉCONNEXION
+   ========================= */
+
+.logout-link {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 13px;
+    color: #c0392b;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.logout-link:hover {
+    text-decoration: underline;
+}
+
+
+.login-retour {
+    margin-top: 12px;
+    text-align: center;
+}
+
+.btn-retour {
+    display: inline-block;
+    padding: 8px 20px;
+    background-color: #c62828;
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: 0.3s;
+}
+
+.btn-retour:hover {
+    background-color: #8e0000;
+}
+
+
+

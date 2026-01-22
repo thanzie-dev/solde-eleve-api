@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Gestion Caisse{% endblock %}</title>
+	<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+</head>
+<body>
+
+<header style="background:#2c3e50;color:white;padding:15px;">
+    <h2>Gestion Caisse & Dépenses</h2>
+     <nav>
+        <a href="/" class="{% if request.path == '/' %}active{% endif %}">Accueil</a>
+        <a href="/caisse-list" class="{% if request.path.startswith('/caisse') %}active{% endif %}">Caisse</a>
+        <a href="/depenses-list" class="{% if request.path.startswith('/depenses') %}active{% endif %}">Dépenses</a>
+        <a href="/solde-list" class="{% if request.path.startswith('/solde') %}active{% endif %}">Solde</a>
+     </nav>
+
+</header>
+
+<main style="padding:20px;">
+    {% block content %}{% endblock %}
+</main>
+
+</body>
+</html>

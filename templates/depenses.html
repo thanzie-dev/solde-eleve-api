@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Dépenses{% endblock %}
+
+{% block content %}
+<h1>Dépenses</h1>
+<form method="get" style="margin-bottom:20px;">
+    <label>
+        Année scolaire :
+        <input type="text" name="annee_scolaire" value="{{ annee or '' }}">
+    </label>
+
+    <label style="margin-left:15px;">
+        Du :
+        <input type="date" name="date_debut" value="{{ date_debut or '' }}">
+    </label>
+
+    <label style="margin-left:15px;">
+        Au :
+        <input type="date" name="date_fin" value="{{ date_fin or '' }}">
+    </label>
+
+    <button type="submit">Filtrer</button>
+</form>
+
+
+<table>
+    <tr>
+        <th>Date</th>
+        <th>Référence</th>
+        <th>Libellé</th>
+        <th>Montant</th>
+        <th>Banque</th>
+        <th>Total</th>
+    </tr>
+
+    {% for r in rows %}
+    <tr>
+        <td>{{ r.date_depense }}</td>
+        <td>{{ r.ref_dp }}</td>
+        <td>{{ r.libelle }}</td>
+        <td>{{ "%.2f"|format(r.montant) }}</td>
+        <td>{{ "%.2f"|format(r.banque) }}</td>
+        <td>{{ "%.2f"|format(r.montant + r.banque) }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% endblock %}

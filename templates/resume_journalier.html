@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Résumé journalier</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<!-- =========================
+     EN-TÊTE INSTITUTIONNEL
+     ========================= -->
+<div class="header-container">
+
+    <!-- GAUCHE : logo + bande -->
+    <div class="header-left">
+	
+         <img src="{{ url_for('static', filename='images/logo_csnst.png') }}" alt="Logo CSNST">
+
+        <div class="header-band">
+            <div class="band-blue"></div>
+            <div class="band-red"></div>
+
+            <div class="scrolling-text">
+                <span>
+                    Bienvenue au Complexe Scolaire Nsanga Le Thanzie — Discipline • Excellence • Travail
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CENTRE : titre -->
+    <div class="header-center">
+        Résumé journalier — Année {{ annee }}
+    </div>
+
+    <!-- DROITE : nom école -->
+    <div class="header-right">
+    COMPLEXE SCOLAIRE<br>
+    NSANGA LE THANZIE<br>
+    <a href="{{ url_for('logout') }}" class="logout-link">
+        Déconnexion
+    </a>
+</div>
+
+
+</div>
+
+
+
+<form method="get" style="margin-bottom:15px;">
+    <label>
+        Du :
+        <input type="date" name="date_debut" value="{{ date_debut or '' }}">
+    </label>
+
+    <label style="margin-left:10px;">
+        Au :
+        <input type="date" name="date_fin" value="{{ date_fin or '' }}">
+    </label>
+
+    <input type="hidden" name="annee" value="{{ annee }}">
+
+    <button type="submit">Filtrer</button>
+</form>
+
+
+<table border="1" cellpadding="6" cellspacing="0">
+     <thead>
+          <!-- Ligne 1 : groupes -->
+            <tr class="group-header">
+                 <th rowspan="2">Date</th>
+                 <th colspan="6">ENTRÉES</th>
+                 <th colspan="3">DÉPENSES</th>
+                 <th rowspan="2">SOLDE</th>
+            </tr>
+
+    <!-- Ligne 2 : colonnes -->
+             <tr class="sub-header">
+                 <th>Report</th>
+                 <th>Bloc 1</th>
+                 <th>Bloc 2</th>
+                 <th>Bus 1</th>
+                 <th>Bus 2</th>
+                 <th>Total Entré</th>
+
+                 <th>
+				     N° Dép.<br>
+					 <button
+					        type="button"
+							class="btn-detail"
+							onclick="toggleDepenses()">
+							Détails
+							</button>
+                 </th>
+                <th>Total Dép.</th>
+                <th>Banque</th>
+              </tr>
+           </thead>
+
+
+    <tbody>
+        {% for r in rows %}
+        <tr>
+           
+            <td>{{ r.date_jour }}</td>
+
+            <td class="entree">{{ r.report }}</td>
+            <td class="entree">{{ r.bloc1 }}</td>
+            <td class="entree">{{ r.bloc2 }}</td>
+            <td class="entree">{{ r.bus1 }}</td>
+            <td class="entree">{{ r.bus2 }}</td>
+            <td class="entree"><strong>{{ r.tot_entr }}</strong></td>
+
+            <td class="depense">
+			    {{ r.nb_depenses }}<br>
+				<button
+					type="button"
+					class="btn-detail"
+					onclick="afficherDepenses('{{ r.date_jour }}')">
+					Détails
+                </button>
+				
+			</td>
+			
+            <td class="depense">{{ r.total_depenses }}</td>
+            <td class="depense">{{ r.banque }}</td>
+
+            <td class="solde {% if r.solde < 0 %}negatif{% else %}positif{% endif %}">
+           {{ r.solde }}
+           </td>
+		   
+        </tr>
+        {% endfor %}
+    </tbody>
+	
+	<tfoot>
+          <tr>
+			<td>TOTAL</td>
+			<td class="entree">{{ totaux.bloc1 }}</td>
+			<td class="entree">{{ totaux.bloc2 }}</td>
+			<td class="entree">{{ totaux.bus1 }}</td>
+			<td class="entree">{{ totaux.bus2 }}</td>
+			<td class="entree">{{ totaux.tot_entr }}</td>
+			<td></td>
+			<td class="depense">{{ totaux.total_depenses }}</td>
+			<td class="depense">{{ totaux.banque }}</td>
+			<td class="solde {% if totaux.solde < 0 %}negatif{% else %}positif{% endif %}">
+				{{ totaux.solde }}
+			</td>
+        </tr>
+    </tfoot>
+
+</table>
+
+<!-- =========================
+     PANNEAU DÉTAILS DÉPENSES
+     ========================= -->
+			<div id="depenses-panel" class="depenses-panel" style="display:none;">
+				<h3>Détails des dépenses</h3>
+
+				<div id="depenses-info"></div>
+
+				<table id="depenses-table">
+					<thead>
+						<tr>
+							<th>N°</th>
+							<th>Référence</th>
+							<th>Libellé</th>
+							<th>Montant</th>
+							<th>Année scolaire</th>
+						</tr>
+					</thead>
+					<tbody></tbody>
+				</table>
+			</div>
+
+
+<script>
+function afficherDepenses(dateJour) {
+
+    // 1. Afficher le panneau
+    const panel = document.getElementById("depenses-panel");
+    panel.style.display = "block";
+
+    const annee = "{{ annee }}";
+
+    // 2. Appel API Flask
+    fetch(`/api/depenses-par-date?date=${encodeURIComponent(dateJour)}&annee=${encodeURIComponent(annee)}`)
+        .then(response => response.json())
+        .then(data => {
+
+            // 3. Affichage des infos (date + nombre)
+            const info = document.getElementById("depenses-info");
+            info.innerHTML = `
+                <strong>Date :</strong> ${data.date}
+                &nbsp; | &nbsp;
+                <strong>Nombre de dépenses :</strong> ${data.nb}
+            `;
+
+            // 4. Remplissage du tableau
+            const tbody = document.querySelector("#depenses-table tbody");
+            tbody.innerHTML = "";
+
+            if (data.nb === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" style="text-align:center;color:#888;">
+                            Aucune dépense pour cette date
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            data.depenses.forEach((d, index) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${d.ref_dp || ""}</td>
+                    <td>${d.libelle}</td>
+                    <td style="text-align:right;">
+                        ${parseFloat(d.montant).toFixed(2)}
+                    </td>
+                    <td>${d.annee_scolaire}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        })
+        .catch(err => {
+            console.error("Erreur chargement dépenses :", err);
+        });
+}
+</script>
+
+
+
+
+
+</body>
+</html>

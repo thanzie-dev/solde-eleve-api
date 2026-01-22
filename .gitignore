@@ -60,3 +60,6 @@ temp/
 *.json
 inspect_*.py
 psql
+
+erreurs_import_depenses.csv
+
