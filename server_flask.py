@@ -191,8 +191,9 @@ def login():
 
 @app.route("/logout")
 def logout():
-    logout_user()
+    session.clear()
     return redirect(url_for("login"))
+
 
 
 
@@ -2822,19 +2823,7 @@ marquee {
     text-align: center;
 }
 
-.btn-caisse {
-    padding: 16px 32px;
-    background: #1976d2;
-    color: white;
-    font-size: 18px;
-    font-weight: bold;
-    border-radius: 12px;
-    text-decoration: none;
-}
 
-.btn-caisse:hover {
-    background: #0d47a1;
-}
 
 .admin-right {
     text-align: right;
@@ -2850,7 +2839,177 @@ marquee {
 }
 
 
+.admin-separator {
+    height: 2px;
+    width: 80%;
+    margin: 25px auto;
+    background: linear-gradient(
+        to right,
+        transparent,
+        #0d47a1,
+        #c62828,
+        #0d47a1,
+        transparent
+    );
+}
+
+.logout-box {
+    margin-top: 10px;
+}
+
+.btn-logout {
+    display: inline-block;
+    padding: 6px 14px;
+    background-color: #c62828;
+    color: white;
+    font-size: 13px;
+    font-weight: bold;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: 0.3s;
+}
+
+.btn-logout:hover {
+    background-color: #8e0000;
+}
+
+/* =========================
+   SÉPARATEUR THZ
+   ========================= */
+
+.thz-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin: 0px 0 18px 0;
+    animation: fadeSlideDown 0.8s ease-out;
+}
+
+.thz-divider .line {
+    flex: 1;
+    height: 6px;
+}
+
+.thz-divider .line.left {
+    background: linear-gradient(to right, #0aa84f, #1abc9c);
+}
+
+.thz-divider .line.right {
+    background: linear-gradient(to left, #c62828, #e53935);
+}
+
+.thz-circle {
+    width: 65px;
+    height: 65px;
+
+    border-radius: 50%;
+    background: linear-gradient(145deg, #3f6fb6, #2c5aa0);
+
+    color: white;
+    font-family: "Bookman Old Style", serif;
+    font-size: 20px;
+    font-weight: bold;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border: 3px solid white;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.25);
+
+    z-index: 2;
+    animation: pulseSoft 2.5s ease-in-out infinite;
+}
+
+
+
+.thz-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px; /* espace cercle ↔ bouton */
+    z-index: 2;
+}
+
+.btn-gestion-caisse {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    padding: 7px 18px;
+    font-size: 13px;
+    font-family: "Bookman Old Style", serif;
+    font-weight: bold;
+
+    color: #0d47a1;
+    background: linear-gradient(145deg, #ffffff, #f1f3f6);
+    border: 1.5px solid #0d47a1;
+    border-radius: 22px;
+
+    text-decoration: none;
+    cursor: pointer;
+
+    box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+    transition: all 0.25s ease;
+}
+
+.btn-gestion-caisse:hover {
+    background: #0d47a1;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+}
+
+
+
+.admin-logo-center {
+    height: 35px;          /* proche du cercle THZ */
+    display: block;
+    margin: 0 auto;
+    object-fit: contain;
+}
+
+.admin-logo-center {
+    height: 40px;
+}
+
+
+
+
+
+
+@keyframes fadeSlideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+
+@keyframes pulseSoft {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(13, 71, 161, 0.4);
+    }
+    50% {
+        transform: scale(1.05);
+        box-shadow: 0 0 12px rgba(13, 71, 161, 0.4);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(13, 71, 161, 0.4);
+    }
+}
+
+
+
 </style>
+
 </head>
 
 <!-- ================= MODALE AIDE ================= -->
@@ -2933,8 +3092,8 @@ function fermerAide() {
 
 <body>
 
-
 <!-- ================= EN-TÊTE ADMIN PRO ================= -->
+
 <div class="admin-header">
 
     <!-- GAUCHE : logo + bandes + texte défilant -->
@@ -2952,17 +3111,23 @@ function fermerAide() {
         </div>
     </div>
 
-    <!-- CENTRE : bouton principal -->
+    <!-- CENTRE : logo secondaire -->
     <div class="admin-center">
-        <a href="/login" class="btn-caisse">
-            💼 GESTION CAISSE
-        </a>
+        <img src="/static/images/logo_csnst1.png"
+             alt="Emblème CSNST"
+             class="admin-logo-center">
     </div>
 
-    <!-- DROITE : nom école -->
+    <!-- DROITE : nom école + déconnexion -->
     <div class="admin-right">
         COMPLEXE SCOLAIRE<br>
         NSANGA LE THANZIE
+
+        <div class="logout-box">
+            <a href="/logout" class="btn-logout">
+                🔓 Déconnexion
+            </a>
+        </div>
     </div>
 
 </div>
@@ -2980,9 +3145,37 @@ function fermerAide() {
     </marquee>
  </div>  -->
 
-<!--<div class="band-red"></div> -->
+
+
+<!--<SEPARATEUR ENTRE ENTET ET PANNEAU -->
+
+<!-- ===== LIGNE DE SÉPARATION THZ ===== -->
+<div class="thz-divider">
+
+    <span class="line left"></span>
+
+    <div class="thz-center">
+    
+  
+    <!-- CERCLE THZ -->
+    
+        <div class="thz-circle">THZ</div>
+         
+         <!-- BOUTON UNIQUE -->
+         
+        <a href="/login" class="btn-admin">
+           🧾 Gestion caisse
+        </a>
+    </div>
+
+    <span class="line right"></span>
+
+</div>
+
+
 
 <div class="panel">
+
     <h2>PANNEAU ADMIN</h2>
 
     <a href="/admin/login">🔐 Connexion Administrateur</a>
