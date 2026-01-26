@@ -2213,11 +2213,15 @@ def rapport_pdf_classe(classe):
         return "Classe invalide", 400
 
     try:
-        # 🔹 1 SEULE CONNEXION DB
+        # ==================================================
+        # 🔹 1) CONNEXION DB UNIQUE
+        # ==================================================
         conn = get_db_connection()
         cur = conn.cursor(row_factory=dict_row)
 
-        # 🔹 Récupération élèves
+        # ==================================================
+        # 🔹 2) RÉCUPÉRATION DES ÉLÈVES
+        # ==================================================
         cur.execute("""
             SELECT id, matricule, nom
             FROM eleves
@@ -2227,9 +2231,12 @@ def rapport_pdf_classe(classe):
         eleves = cur.fetchall()
 
         if not eleves:
+            conn.close()
             return f"Aucun élève trouvé pour la classe {classe}", 404
 
-        # 🔹 Paiements groupés (1 requête)
+        # ==================================================
+        # 🔹 3) RÉCUPÉRATION DES PAIEMENTS (UNE SEULE REQUÊTE)
+        # ==================================================
         cur.execute("""
             SELECT
                 e.matricule,
@@ -2243,7 +2250,9 @@ def rapport_pdf_classe(classe):
 
         conn.close()
 
-        # 🔹 Organisation en mémoire (RAPIDE)
+        # ==================================================
+        # 🔹 4) ORGANISATION EN MÉMOIRE
+        # ==================================================
         pay_map = {}
         for p in paiements:
             m = canonical_month(p["mois"])
@@ -2252,24 +2261,36 @@ def rapport_pdf_classe(classe):
             pay_map.setdefault(p["matricule"], {}).setdefault(m, 0)
             pay_map[p["matricule"]][m] += float(p["fip"])
 
-        # 🔹 Construction lignes PDF
+        # ==================================================
+        # 🔹 5) CONSTRUCTION DES LIGNES PDF
+        # ==================================================
         lignes = []
+        total_general = 0.0
+
         for i, e in enumerate(eleves, start=1):
+
+            paiements_eleve = pay_map.get(e["matricule"], {})
             mois_payes = sorted(
-                pay_map.get(e["matricule"], {}).keys(),
+                paiements_eleve.keys(),
                 key=lambda m: MOIS_SCOLAIRE.index(m)
             )
-            total_paye = sum(pay_map.get(e["matricule"], {}).values())
-            mois_non_payes = [m for m in MOIS_SCOLAIRE if m not in mois_payes]
+
+            total_paye = sum(paiements_eleve.values())
+
+            mois_non_payes = [
+                m for m in MOIS_SCOLAIRE
+                if m not in mois_payes
+            ]
 
             if type_pdf == "paye":
                 lignes.append([
                     i,
                     e["matricule"],
                     e["nom"],
-                    total_paye,
+                    round(total_paye, 2),      # ✅ Valeur calculée
                     ", ".join(mois_payes)
                 ])
+                total_general += total_paye
             else:
                 lignes.append([
                     i,
@@ -2278,7 +2299,21 @@ def rapport_pdf_classe(classe):
                     ", ".join(mois_non_payes)
                 ])
 
-        # 🔹 PDF
+        # ==================================================
+        # 🔹 6) LIGNE TOTAL GÉNÉRAL
+        # ==================================================
+        if type_pdf == "paye":
+            lignes.append([
+                "",
+                "",
+                "TOTAL",
+                round(total_general, 2),     # ✅ TOTAL FINAL
+                ""
+            ])
+
+        # ==================================================
+        # 🔹 7) GÉNÉRATION DU PDF
+        # ==================================================
         os.makedirs("temp", exist_ok=True)
         path = f"temp/rapport_{classe_norm}_{type_pdf}.pdf"
 
@@ -2305,9 +2340,10 @@ def rapport_pdf_classe(classe):
             if type_pdf == "paye"
             else f"LISTE DES MOIS NON PAYÉS<br/>POUR LA CLASSE DE : <b>{classe_norm}</b>"
         )
-        elements.append(Paragraph(titre, ParagraphStyle(
-            "title", fontSize=14, alignment=1, spaceAfter=20
-        )))
+        elements.append(Paragraph(
+            titre,
+            ParagraphStyle("title", fontSize=14, alignment=1, spaceAfter=20)
+        ))
 
         # TABLE
         headers = (
@@ -2317,24 +2353,20 @@ def rapport_pdf_classe(classe):
         )
 
         table = Table([headers] + lignes, repeatRows=1)
-
         table.setStyle(TableStyle([
             ("GRID", (0,0), (-1,-1), 1, colors.grey),
             ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1976d2")),
             ("TEXTCOLOR", (0,0), (-1,0), colors.white),
             ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-
-            # Alignements
-            ("ALIGN", (0,1), (0,-1), "CENTER"),   # N°
-            ("ALIGN", (1,1), (2,-1), "LEFT"),     # Matricule + Nom
-            ("ALIGN", (3,1), (3,-1),
-                "CENTER" if type_pdf == "paye" else "LEFT"),
+            ("ALIGN", (0,1), (0,-1), "CENTER"),
+            ("ALIGN", (1,1), (2,-1), "LEFT"),
+            ("ALIGN", (3,1), (3,-1), "CENTER"),
             ("ALIGN", (4,1), (4,-1), "LEFT"),
         ]))
 
         elements.append(table)
-
         doc.build(elements)
+
         return send_file(path, as_attachment=True)
 
     except Exception as e:
