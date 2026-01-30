@@ -310,4 +310,25 @@ tfoot tr {
 }
 
 
+/* ===== IMPRESSION PDF ===== */
+.print-bar {
+    text-align: right;
+    margin-bottom: 15px;
+}
+
+.btn-print {
+    background: #0d47a1;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: bold;
+    border-radius: 6px;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+
+.btn-print:hover {
+    background: #08306b;
+}
 

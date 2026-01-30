@@ -3027,7 +3027,6 @@ marquee {
 
 
 
-
 .thz-circle {
     width: 65px;
     height: 65px;
@@ -3966,7 +3965,8 @@ def api_journal_pdf(date_iso):
 #================================================
 
 @app.route("/api/dashboard/finance")
-@login_required
+@require_role("admin", "compta")
+#@login_required
 def api_dashboard_finance():
     """
     Tableau de bord financier – KPI principaux
@@ -4539,9 +4539,6 @@ fetch("/api/dashboard/finance/by_section")
 
 
 
-
-
-
 </body>
 </html>
 """
@@ -4550,7 +4547,8 @@ fetch("/api/dashboard/finance/by_section")
 #=============================
 
 @app.route("/api/dashboard/finance/monthly")
-@login_required
+@require_role("admin", "compta")
+#@login_required
 def api_dashboard_finance_monthly():
     """
     Retourne les montants encaissés par mois scolaire
@@ -4602,7 +4600,8 @@ def api_dashboard_finance_monthly():
         
         
 @app.route("/api/dashboard/finance/by_section")
-@login_required
+@require_role("admin", "compta")
+#@login_required
 def api_dashboard_finance_by_section():
     """
     Répartition financière par section
