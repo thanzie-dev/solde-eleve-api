@@ -4188,7 +4188,9 @@ body {
 </div>
 
 <script>
-fetch("/api/dashboard/finance")
+fetch("/api/dashboard/finance",{
+    credentials: "same-origin"
+})
 .then(r => r.json())
 .then(data => {
     document.getElementById("nb_eleves").textContent = data.nb_eleves;
@@ -4361,7 +4363,9 @@ fetch("/api/dashboard/finance")
 <!-- Scripts module pour les graphiques par mois -->
 
 <script>
-fetch("/api/dashboard/finance/monthly")
+fetch("/api/dashboard/finance/monthly",{
+    credentials: "same-origin"
+})
 .then(res => res.json())
 .then(data => {
 
@@ -4421,7 +4425,9 @@ fetch("/api/dashboard/finance/monthly")
 <!-- 📊 Graphique comparatif Total attendu vs Total encaissé-->
 
 <script>
-fetch("/api/dashboard/finance")
+fetch("/api/dashboard/finance",{
+    credentials: "same-origin"
+})
 .then(res => res.json())
 .then(data => {
 
@@ -4480,7 +4486,9 @@ fetch("/api/dashboard/finance")
 
 
 <script>
-fetch("/api/dashboard/finance/by_section")
+fetch("/api/dashboard/finance/by_section",{
+    credentials: "same-origin"
+})
 .then(res => res.json())
 .then(data => {
 
