@@ -26,8 +26,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
 import import_excel_pg as import_excel
-
-
+from flask import session, redirect, url_for
 
 
 
@@ -132,6 +131,27 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "BJ2KEL24")
 
 
+
+
+
+# Décorateur pour protéger les routes admin
+def login_required(f):
+    """
+    Protège les routes administrateur.
+    Redirige vers /admin/login si non connecté.
+    """
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not session.get("admin_logged"):
+            return redirect(url_for("admin_login"))
+        return f(*args, **kwargs)
+    return wrapper
+
+
+
+
+
+
 def login_user(role):
     session["role"] = role
 
@@ -172,7 +192,7 @@ def login():
 
         if password in ADMIN_PASSWORDS:
             login_user("admin")
-            return redirect(url_for("resume_journalier"))
+            return redirect(url_for("home_page"))
 
         if COMPTA_PASSWORD and password == COMPTA_PASSWORD:
             login_user("compta")
@@ -181,6 +201,16 @@ def login():
         error = "Mot de passe incorrect"
 
     return render_template("login.html", error=error)
+
+#================
+#  ROUTE HOME
+#===============
+
+
+@app.route("/home")
+#@login_required
+def home_page():
+    return render_template_string(HOME_HTML)
 
 
 
@@ -405,38 +435,40 @@ def resume_journalier():
     # --- requête SQL ---
     query = f"""
         SELECT
-            c.date_operation AS date_jour,
-            c.annee_scolaire,
-
+            c.date_operation                           AS date_jour,
             c.report,
             c.bloc1,
             c.bloc2,
             c.bus1,
             c.bus2,
 
-            (c.bloc1 + c.bloc2 + c.bus1 + c.bus2) AS tot_entr,
+            (c.bloc1 + c.bloc2 + c.bus1 + c.bus2)     AS tot_entr,
 
-            COUNT(d.id)                 AS nb_depenses,
-            COALESCE(SUM(d.montant),0)  AS total_depenses,
-            COALESCE(SUM(d.banque),0)   AS banque,
+            COALESCE(d.nb_depenses, 0)                AS nb_depenses,
+            COALESCE(d.total_cash, 0)                 AS total_depenses,
+            COALESCE(d.total_banque, 0)               AS banque,
 
             (
-                (c.bloc1 + c.bloc2 + c.bus1 + c.bus2 + c.report)
-                - (COALESCE(SUM(d.montant),0) + COALESCE(SUM(d.banque),0))
+                (c.report + c.bloc1 + c.bloc2 + c.bus1 + c.bus2)
+                - (COALESCE(d.total_cash,0) + COALESCE(d.total_banque,0))
             ) AS solde
 
         FROM caisse_journaliere c
-        LEFT JOIN depense d
+
+        LEFT JOIN (
+            SELECT
+                date_depense,
+                annee_scolaire,
+                COUNT(*)        AS nb_depenses,
+                SUM(montant)    AS total_cash,
+                SUM(banque)     AS total_banque
+            FROM depense
+            GROUP BY date_depense, annee_scolaire
+        ) d
           ON d.date_depense = c.date_operation
          AND d.annee_scolaire = c.annee_scolaire
 
         {where_sql}
-
-        GROUP BY
-            c.date_operation,
-            c.annee_scolaire,
-            c.report,
-            c.bloc1, c.bloc2, c.bus1, c.bus2
 
         ORDER BY c.date_operation
     """
@@ -458,12 +490,15 @@ def resume_journalier():
     for r in rows:
         totaux["bloc1"] += r["bloc1"]
         totaux["bloc2"] += r["bloc2"]
-        totaux["bus1"] += r["bus1"]
-        totaux["bus2"] += r["bus2"]
+        totaux["bus1"]  += r["bus1"]
+        totaux["bus2"]  += r["bus2"]
         totaux["tot_entr"] += r["tot_entr"]
         totaux["total_depenses"] += r["total_depenses"]
         totaux["banque"] += r["banque"]
-        totaux["solde"] += r["solde"]
+        # ❌ NE PAS cumuler le solde
+
+    # ✅ solde final = solde du dernier jour affiché
+    totaux["solde"] = rows[-1]["solde"] if rows else 0
 
     return render_template(
         "resume_journalier.html",
@@ -473,6 +508,8 @@ def resume_journalier():
         date_debut=date_debut,
         date_fin=date_fin
     )
+
+
 
 @app.route("/depenses-par-date")
 def depenses_par_date():
@@ -533,18 +570,6 @@ MOIS_SCOLAIRE = [
     "Mars", "Avr", "Mai", "Juin"
 ]
 
-# Décorateur pour protéger les routes admin
-def login_required(f):
-    """
-    Protège les routes administrateur.
-    Redirige vers /admin/login si non connecté.
-    """
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if not session.get("admin_logged"):
-            return redirect(url_for("admin_login"))
-        return f(*args, **kwargs)
-    return wrapper
 
 
 
@@ -569,6 +594,7 @@ def get_db_connection():
 # ===============================================================
 # 🔵 1. Détermination FIP mensuel selon classe
 # ===============================================================
+
 def get_fip_par_classe(classe):
     classe = canonical_classe(classe)
     if not classe:
@@ -2577,6 +2603,7 @@ def admin_fip_eleve():
 #==============================================
 #RESULTAT ELEVE (Recherche par Numéro Matricule
 #============================================== 
+
 @app.route("/admin/fip_eleve_result")
 def admin_fip_eleve_result():
     """
@@ -2818,7 +2845,7 @@ marquee {
 }
 
 .admin-logo {
-    height: 70px;
+    height: 90px;
 }
 
 .admin-band {
@@ -2857,13 +2884,80 @@ marquee {
 
 
 
+/* LOGO ECUSON */
+
+.admin-logo-center {
+    height: 85px;          /* proche du cercle THZ */
+    display: block;
+    margin: 0 auto;
+    object-fit: contain;
+    
+    /* 🎯 AJUSTEMENT PRO : vers la gauche */
+    transform: translateX(-110px);
+}
+
+
+.header-right {
+    text-align: right;
+    font-weight: bold;
+    line-height: 1.2;
+}
+
+.school-black {
+    color: #000000;
+    font-size: 16px;
+}
+
+.school-red {
+    color: #c62828;
+    font-size: 17px;
+    letter-spacing: 1px;
+}
+
+
+
 .admin-right {
     text-align: right;
     font-family: "Bookman Old Style", serif;
-    font-size: 16px;
-    font-weight: bold;
-    color: #0d47a1;
 }
+
+.institution-text {
+    margin-bottom: 10px;
+    line-height: 1.2;
+}
+
+.school-black {
+    color: #000;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.school-red {
+    color: #c62828;
+    font-size: 17px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+
+.btn-logout {
+    display: inline-block;
+    padding: 6px 16px;
+    background-color: #c62828;
+    color: white;
+    font-size: 13px;
+    font-weight: bold;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: all 0.25s ease;
+}
+
+.btn-logout:hover {
+    background-color: #8e0000;
+    transform: scale(1.05);
+}
+
+
+
 
 @keyframes scroll-left {
     from { transform: translateX(100%); }
@@ -2931,6 +3025,9 @@ marquee {
     background: linear-gradient(to left, #c62828, #e53935);
 }
 
+
+
+
 .thz-circle {
     width: 65px;
     height: 65px;
@@ -2995,20 +3092,6 @@ marquee {
 
 
 
-.admin-logo-center {
-    height: 35px;          /* proche du cercle THZ */
-    display: block;
-    margin: 0 auto;
-    object-fit: contain;
-}
-
-.admin-logo-center {
-    height: 40px;
-}
-
-
-
-
 
 
 @keyframes fadeSlideDown {
@@ -3039,12 +3122,13 @@ marquee {
 }
 
 
-
 </style>
+
 
 </head>
 
 <!-- ================= MODALE AIDE ================= -->
+
 <div id="aideModal" style="
     display:none;
     position:fixed;
@@ -3106,9 +3190,11 @@ marquee {
         </button>
     </div>
 </div>
-<!-- ================= MODALE AIDE FIN ================= -->
 
-<!-- ================= JAVA SCRIPTS ================= -->
+<!-- ===== MODALE AIDE FIN ===== -->
+
+<!-- ===== JAVA SCRIPTS ======== -->
+
 <script>
 function ouvrirAide() {
     document.getElementById("aideModal").style.display = "block";
@@ -3119,7 +3205,7 @@ function fermerAide() {
 }
 </script>
 
-<!-- ================= JAVA SCRIPTS FIN================= -->
+<!-- ======JAVA SCRIPTS FIN======== -->
 
 
 <body>
@@ -3129,6 +3215,7 @@ function fermerAide() {
 <div class="admin-header">
 
     <!-- GAUCHE : logo + bandes + texte défilant -->
+    
     <div class="admin-left">
         <img src="/static/images/logo_csnst.png" class="admin-logo">
 
@@ -3151,18 +3238,22 @@ function fermerAide() {
     </div>
 
     <!-- DROITE : nom école + déconnexion -->
-    <div class="admin-right">
-        COMPLEXE SCOLAIRE<br>
-        NSANGA LE THANZIE
+      <!-- DROITE : institution + déconnexion -->
+            <div class="admin-right">
 
-        <div class="logout-box">
-            <a href="/logout" class="btn-logout">
-                🔓 Déconnexion
-            </a>
-        </div>
-    </div>
+                <div class="institution-text">
+                    <span class="school-black">COMPLEXE SCOLAIRE</span><br>
+                    <span class="school-red">NSANGA LE THANZIE</span>
+                </div>
 
-</div>
+                <a href="/logout" class="btn-logout">
+                    🔓 Déconnexion
+                </a>
+
+            </div>
+
+
+</div>      
 
 
 <!-- ================= FIN EN-TÊTE ADMIN ================= -->
@@ -3181,7 +3272,8 @@ function fermerAide() {
 
 <!--<SEPARATEUR ENTRE ENTET ET PANNEAU -->
 
-<!-- ===== LIGNE DE SÉPARATION THZ ===== -->
+<!-- ===== LIGNE DE SÉPARATION THZ === -->
+
 <div class="thz-divider">
 
     <span class="line left"></span>
@@ -3195,8 +3287,8 @@ function fermerAide() {
          
          <!-- BOUTON UNIQUE -->
          
-        <a href="/login" class="btn-admin">
-           🧾 Gestion caisse
+        <a href="/home" class="btn-admin">
+           🧾 RETOUR Home
         </a>
     </div>
 
@@ -4003,8 +4095,8 @@ body {
     padding: 20px 40px;
 }
 .header img {
-    height: 60px;
-    margin-right: 20px;
+    height: 60px;  
+    margin-right: 20px;   
 }
 .header h1 {
     color: #0d47a1;
@@ -4576,6 +4668,704 @@ def api_depenses_par_date():
         "nb": len(rows),
         "depenses": rows
     })
+
+
+
+
+#========= PAGE HOME ==========
+
+
+HOME_HTML = """
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Accueil - CS Nsanga le Thanzie</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: "Bookman Old Style", serif;
+    background: #f4f6fb;
+}
+
+/* ================= HEADER ================= */
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 30px;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.header-left img {
+    height: 95px; /* avant : 70*/
+}
+
+.bands {
+    width: 220px;
+}
+
+.band-blue { height: 6px; background:#0d47a1; }
+.band-red  { height: 6px; background:#c62828; }
+
+.marquee {
+    overflow: hidden;
+    height: 24px;
+    background: #fff;
+}
+
+.marquee span {
+    display: inline-block;
+    white-space: nowrap;
+    animation: scroll 14s linear infinite;
+    font-weight: bold;
+    color:#0d47a1;
+}
+
+@keyframes scroll {
+    from { transform: translateX(100%); }
+    to   { transform: translateX(-100%); }
+}
+
+
+.header-center {
+    font-size: 15px;
+    font-weight: bold;
+    color: #0d47a1;
+    background: linear-gradient(to right, #ffffff, #e3f2fd);
+    padding: 10px 18px;
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    letter-spacing: 0.5px;
+    
+     /* 🎯 AJUSTEMENT PRO : vers la gauche */
+    transform: translateX(-30px); /* décale légèrement vers la droite */
+}
+
+
+.header-right {
+    text-align: right;
+    font-size: 16px;
+    color:#0d47a1;
+    font-weight: bold;
+}
+
+.school-black {
+    color: #000000;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.school-red {
+    color: #c62828;
+    font-size: 17px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+
+
+
+/* ================= SEPARATEUR ================= */
+
+
+.thz-separator {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    width: 100%;
+    padding: 15px 0;
+    background: #f4f6f8;
+    position: relative;
+    z-index: 5;
+}
+
+/* BLOCS DE LIGNES */
+.thz-lines {
+    position: relative;
+    width: 100%;
+}
+
+.thz-lines.left,
+.thz-lines.right {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+/* LIGNES */
+.line {
+    height: 4px;
+    width: 100%;
+    border-radius: 2px;
+}
+
+.line.blue  { background-color: #1e40af; }
+.line.green { background-color: #16a34a; }
+.line.red   { background-color: #dc2626; }
+
+/* CENTRE */
+.thz-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 20px;
+}
+
+
+/* Cercle THZ */
+
+.thz-circle {
+    width: 72px;              /* 🔼 agrandi */
+    height: 72px;
+
+    border-radius: 50%;
+    background: #3f6fb6;
+
+    /* 🎯 DOUBLE CONTOUR */
+    border: 3px solid white;                /* contour intérieur */
+    outline: 3px solid #facc15;             /* contour extérieur jaune */
+    outline-offset: 3px;
+
+    color: white;
+    font-family: "Bookman Old Style", serif;
+    font-size: 20px;         /* 🔼 texte un peu plus grand */
+    font-weight: bold;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    box-shadow: 0 6px 18px rgba(0,0,0,0.28);
+
+    animation: pulseTHZ 2.5s ease-in-out infinite;
+}
+
+
+/* BOUTON DÉCONNEXION DANS LES LIGNES */
+
+.btn-logout-inline {
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+
+    background: #dc2626;
+    color: white;
+
+    padding: 9px 20px;       /* 🔼 agrandi */
+    border-radius: 8px;      /* 🔼 plus doux */
+
+    font-size: 14px;         /* 🔼 lisibilité */
+    font-weight: bold;
+
+    text-decoration: none;
+
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    z-index: 10;
+
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn-logout-inline:hover {
+    background: #b91c1c;
+    transform: translateY(-50%) scale(1.05);
+    box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+}
+
+
+/* ===== DECONNEXION ====== */
+
+.logout {
+    position:absolute;
+    right:30px;
+    top:110px;
+}
+
+.logout a {
+    background:#c62828;
+    color:white;
+    padding:8px 16px;
+    text-decoration:none;
+    border-radius:6px;
+}
+
+/* ===== ZONE VERTE ======== */
+
+.zone-green {
+    background: #7cb342;
+    margin: 30px;
+    padding: 40px 30px;   /* 🔼 plus d’espace haut/bas */
+    display: flex;
+    gap: 30px;
+    border-radius: 12px;
+}
+
+/* == TITRE PRO (DESIGN INSTITUTIONNEL)=== */
+
+.buttons-title {
+    text-align: center;
+    font-size: 18px;
+    font-weight: bold;
+    color: #0d47a1;
+    background: linear-gradient(to right, #ffffff, #e3f2fd);
+    padding: 12px 20px;
+    border-radius: 8px;
+    margin-bottom: 18px;
+    letter-spacing: 1px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+
+/* +++ CADRE PRO AUTOUR DES BOUTONS +++ */
+
+.buttons-frame {
+    background: #558b2f;
+    padding: 20px;
+    border-radius: 14px;
+    border: 2px solid #ffffff;
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,0.4);
+}
+
+
+/*++++ HTN : HOVER INTELLIGENT + TOOLTIP +++*/
+
+.nav-btn {
+    background: #3f6fb6;
+    color: white;
+    border: 2px solid white;
+    padding: 10px;
+    cursor: pointer;
+    font-weight: bold;
+    text-align: center;
+    transition: all 0.25s ease;
+    position: relative;
+}
+
+.nav-btn:hover {
+    background: #0d47a1;
+    transform: translateY(-3px);
+    box-shadow: 0 6px 14px rgba(0,0,0,0.25);
+}
+
+/* TOOLTIP */
+.nav-btn::after {
+    content: attr(data-label);
+    position: absolute;
+    bottom: 115%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0d47a1;
+    color: white;
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.nav-btn:hover::after {
+    opacity: 1;
+}
+
+
+.buttons {
+    display:grid;
+    grid-template-columns: repeat(4, 80px);
+    gap:12px;
+}
+
+.buttons button {
+    background:#3f6fb6;
+    color:white;
+    border:2px solid white;
+    padding:10px;
+    cursor:pointer;
+}
+
+.buttons button:hover {
+    background:#0d47a1;
+}
+
+/* STRUCTURE DES 3 ZONES A DROIT ( POR ET EVOLUTIVE ) */
+
+.right-zones {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    flex: 1;
+}
+
+.right-box {
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: white;
+    font-size: 16px;
+}
+
+/* Couleurs harmonisées */
+.box-a { background: #ffffff; color:#0d47a1; }
+.box-b { background: #e3f2fd; color:#0d47a1; }
+.box-c { background: #c5e1a5; color:#1b5e20; }
+
+/* ===== ZONE A INTELLIGENTE ===== */
+
+.box-a {
+    display: flex;
+    flex-direction: column;
+    padding: 18px;
+    background: #ffffff;
+    border-radius: 14px;
+    border: 2px solid #0d47a1;
+}
+
+/* TITRE FIGÉ */
+.zoneA-title {
+    font-size: 15px;
+    font-weight: bold;
+    color: #0d47a1;
+    text-align: center;
+    padding: 10px;
+    border-bottom: 2px solid #e3f2fd;
+    background: linear-gradient(to right, #e3f2fd, #ffffff);
+}
+
+/* CONTENEUR TEXTE */
+
+.zoneA-content {
+    height: 220px;
+    overflow: hidden;
+    position: relative;
+    border-top: 1px solid #ddd;
+    margin-top: 10px;
+}
+
+.zoneA-scroll {
+    display: block;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #333;
+    padding: 10px;
+    transform: translateY(0);
+}
+
+.zoneA-scroll.scrolling {
+    animation: simpleScroll 12s linear infinite;
+}
+
+@keyframes simpleScroll {
+    from {
+        transform: translateY(100%);
+    }
+    to {
+        transform: translateY(-100%);
+    }
+}
+
+
+
+/* CLIGNOTEMENT BOUTON (BTN non actif) */
+@keyframes blinkBtn {
+    0% { background: #3f6fb6; }
+    50% { background: #facc15; color:#0d47a1; }
+    100% { background: #3f6fb6; }
+}
+
+.blink {
+    animation: blinkBtn 1s infinite;
+}
+
+
+
+
+/* ================= MULTIMEDIA ================= */
+.media {
+    display:grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap:20px;
+    padding:30px;
+}
+
+.media div {
+    background:#4472c4;
+    height:200px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:white;
+}
+
+/* ================= PANNEAU ================= */
+.panel {
+    background:black;
+    color:white;
+    padding:40px;
+    text-align:center;
+}
+
+/* ================= FOOTER ================= */
+.footer {
+    background:#c62828;
+    color:white;
+    text-align:center;
+    padding:15px;
+}
+</style>
+</head>
+
+<body>
+
+<!-- HEADER -->
+<div class="header">
+    <div class="header-left">
+        <img src="/static/images/logo_csnst.png">
+        <div class="bands">
+            <div class="band-blue"></div>
+            <div class="band-red"></div>
+            <div class="marquee">
+                <span>Gestion scolaire — Suivi de la caisse — Transparence administrative</span>
+            </div>
+        </div>
+    </div>
+       
+       <div class="header-center" id="datetime">
+       <!-- Date & heure injectées par JS -->
+       </div>
+       
+     <div class="header-right">
+        <span class="school-black">COMPLEXE SCOLAIRE</span><br>
+        <span class="school-red">NSANGA LE THANZIE</span>
+     </div>
+
+</div>
+
+
+
+<!-- =======================
+     SÉPARATEUR THZ CENTRAL
+     ======================= -->
+<div class="thz-separator">
+
+    <!-- LIGNES GAUCHE -->
+    <div class="thz-lines left">
+        <span class="line blue"></span>
+        <span class="line green"></span>
+        <span class="line red"></span>
+    </div>
+
+    <!-- CENTRE -->
+    <div class="thz-center">
+        <div class="thz-circle">THZ</div>
+    </div>
+
+    <!-- LIGNES DROITE + DÉCONNEXION -->
+    <div class="thz-lines right">
+        <span class="line blue"></span>
+        <span class="line green"></span>
+        <span class="line red"></span>
+
+        <a href="/logout" class="btn-logout-inline">
+            Déconnexion
+        </a>
+    </div>
+
+</div>
+
+
+
+<!-- ZONE VERTE -->
+
+<div class="zone-green">
+
+    <!-- ====== BLOC BOUTONS ====== -->
+    
+    <div class="buttons-wrapper">
+
+        <div class="buttons-title">
+            🧭 PANNEAU DE NAVIGATION PRINCIPALE
+        </div>
+
+        <div class="buttons-frame">
+            <div class="buttons">
+                {% for i in range(1,17) %}
+                    {% if i == 1 %}
+                        <a href="/admin1/panel"
+                           class="nav-btn"
+                           data-label="Panneau Admin">
+                           {{ i }}
+                        </a>
+                    {% else %}
+                        <button class="nav-btn"
+                                data-label="Btn {{ i }}">
+                            {{ i }}
+                        </button>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ====== 3 ZONES À DROITE ====== -->
+    
+    <div class="right-zones">
+    
+    
+        <!---==== BOUTON A ===== --->
+        
+        <div class="right-box box-a" id="zoneA">
+
+                    <div class="zoneA-title" id="zoneA-title">
+                        Survolez un bouton
+                    </div>
+
+                    <div class="zoneA-content">
+                        <div class="zoneA-scroll" id="zoneA-scroll">
+                            <p>
+                Placez le curseur de la souris sur un bouton pour découvrir
+                son rôle et les fonctionnalités associées.
+            </p>
+        </div>
+    </div>
+
+</div>
+
+        
+        
+        
+        <div class="right-box box-b">ZONE B</div>
+        <div class="right-box box-c">ZONE C</div>
+    </div>
+
+</div>
+
+
+
+
+<!-- MULTIMEDIA -->
+<div class="media">
+    <div>VIDÉO INSTITUTIONNELLE</div>
+    <div>ANNONCES & PUBLICITÉS</div>
+    <div>IMAGES DÉFILANTES</div>
+</div>
+
+<!-- PANNEAU -->
+<div class="panel">
+    On parle du complexe Nsanga le Thanzie
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+    165 Av Kasangula, Q/Gambela 2, Lubumbashi — Tél : +243 974 773 760
+</div>
+
+<!-- Script pour la ZONA A -->
+
+<script>
+const zoneATitle  = document.getElementById("zoneA-title");
+const zoneAScroll = document.getElementById("zoneA-scroll");
+
+const texteBouton1 = `
+<p>
+<b>PANNEAU ADMINISTRATEUR</b><br><br>
+Ce panneau constitue le centre de pilotage du système Nsanga le Thanzie.<br><br>
+• Gestion des élèves<br>
+• Suivi des paiements<br>
+• Journaux comptables<br>
+• Rapports officiels<br>
+• Contrôle administratif et financier<br><br>
+Une gestion centralisée, sécurisée et professionnelle.
+</p>
+`;
+
+const texteParDefaut = `
+<p>
+<b>Bienvenue sur la plateforme Nsanga le Thanzie.</b><br><br>
+Ce bouton n’est pas encore opérationnel.<br>
+Les fonctionnalités associées seront mises à jour prochainement.<br><br>
+Merci pour votre confiance.
+</p>
+`;
+
+document.querySelectorAll(".nav-btn").forEach(btn => {
+
+    btn.addEventListener("mouseenter", () => {
+
+        const num = btn.textContent.trim();
+
+        // reset
+        zoneAScroll.classList.remove("scrolling");
+        zoneAScroll.innerHTML = "";
+
+        // forcer repaint
+        void zoneAScroll.offsetHeight;
+
+        if (num === "1") {
+            zoneATitle.textContent = "Panneau Administrateur";
+            zoneAScroll.innerHTML = texteBouton1;
+            zoneAScroll.classList.add("scrolling");
+        } else {
+            zoneATitle.textContent = "BTN " + num;
+            zoneAScroll.innerHTML = texteParDefaut;
+            btn.classList.add("blink");
+        }
+    });
+
+    btn.addEventListener("mouseleave", () => {
+        btn.classList.remove("blink");
+        zoneAScroll.classList.remove("scrolling");
+    });
+
+});
+</script>
+
+
+
+<!-- Script pour LA DATE ET HEURE -->
+
+
+<script>
+function updateDateTime() {
+    const now = new Date();
+    const optionsDate = {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    };
+
+    const date = now.toLocaleDateString('fr-FR', optionsDate);
+    const time = now.toLocaleTimeString('fr-FR');
+
+    document.getElementById("datetime").innerHTML =
+        `${date} — <span style="color:#c62828">${time}</span>`;
+}
+
+updateDateTime();
+setInterval(updateDateTime, 1000);
+</script>
+
+
+
+
+
+
+</body>
+</html>
+"""
+
+
+
 
 
 # ===============================================================
