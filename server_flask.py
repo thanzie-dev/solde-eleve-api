@@ -26,7 +26,8 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
 import import_excel_pg as import_excel
-from flask import session, redirect, url_for
+
+
 
 
 
@@ -38,8 +39,20 @@ from flask import session, redirect, url_for
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
-def get_conn():
-    return psycopg.connect(DATABASE_URL)
+
+""" Fonction métier centrale """
+
+def annee_scolaire_from_date(d: date) -> str:
+    """
+    Règle métier officielle :
+    - avant le 06 septembre → année N-1/N
+    - à partir du 06 septembre → année N/N+1
+    """
+    if d.month < 9 or (d.month == 9 and d.day < 6):
+        return f"{d.year-1}-{d.year}"
+    return f"{d.year}-{d.year+1}"
+
+
 
 
 def canonical_classe(raw):
@@ -110,16 +123,24 @@ def canonical_classe(raw):
 #==================
 
 def fetch_all(query, params=None):
-    with psycopg.connect(DATABASE_URL) as conn:
+    conn = get_db_connection()
+    try:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(query, params or ())
             return cur.fetchall()
+    finally:
+        conn.close()
+
 
 def fetch_one(query, params=None):
-    with psycopg.connect(DATABASE_URL) as conn:
+    conn = get_db_connection()
+    try:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(query, params or ())
             return cur.fetchone()
+    finally:
+        conn.close()
+
 
 
 
@@ -132,23 +153,37 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "BJ2KEL24")
 
 
 
+# ===============================================================
+# 🔐 VARIABLES D’ENVIRONNEMENT — À DÉFINIR AVANT LES ROUTES
+# ===============================================================
+
+ADMIN_PASSWORDS = [
+    p.strip()
+    for p in os.environ.get("ADMIN_PASSWORDS", "").split(",")
+    if p.strip()
+]
+
+COMPTA_PASSWORD = os.environ.get("COMPTA_PASSWORD")
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "BJ2KEL24")
 
 
-# Décorateur pour protéger les routes admin
-def login_required(f):
-    """
-    Protège les routes administrateur.
-    Redirige vers /admin/login si non connecté.
-    """
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if not session.get("admin_logged"):
-            return redirect(url_for("admin_login"))
-        return f(*args, **kwargs)
-    return wrapper
 
 
 
+# ⏱️ Durée de session (15 minutes)
+app.permanent_session_lifetime = timedelta(minutes=15)
+
+
+
+# 🔒 Sécurité cookies (à ajouter ici)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+
+app.config["SESSION_COOKIE_SECURE"] = True
 
 
 
@@ -171,36 +206,91 @@ def require_role(*roles):
         def wrapper(*args, **kwargs):
             role = session.get("role")
             if role not in roles:
-                return redirect(url_for("login"))
+                return redirect("/admin/login")
             return f(*args, **kwargs)
         return wrapper
     return decorator
     
-    
+
+#==================
+# DÉCORATEURS API
+#==================
+
+def require_api_role(*roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            role = session.get("role")
+            if role not in roles:
+                return jsonify({"error": "Unauthorized"}), 401
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+
+@app.route("/connexion")
+def connexion():
+    return render_template("connexion.html")
+
+
+
+
+@app.route("/thz")
+def thz():
+    return render_template("thz.html")
+
+
+@app.route("/entreprise")
+def entreprise():
+    return render_template("index.html")
+
+
+
 
 #================
 #  ROUTE LOGIN
 #================
 
-
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["POST"])
 def login():
+
+    password = request.form.get("password")
+
+    if password in ADMIN_PASSWORDS:
+        session["logged_in"] = True
+        return redirect("/thz")
+
+    else:
+        return redirect("/")
+
+
+
+#================
+#  ROUTE ADMIN/LOGIN
+#================
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+
+def admin_login():
     error = None
 
     if request.method == "POST":
-        password = request.form.get("password", "").strip()
+        pwd = request.form.get("password", "").strip()
 
-        if password in ADMIN_PASSWORDS:
-            login_user("admin")
-            return redirect(url_for("home_page"))
+        if pwd in ADMIN_PASSWORDS:
+            session["role"] = "admin"
+            return redirect("/admin/dashboard")
 
-        if COMPTA_PASSWORD and password == COMPTA_PASSWORD:
-            login_user("compta")
-            return redirect(url_for("resume_journalier"))
+        if COMPTA_PASSWORD and pwd == COMPTA_PASSWORD:
+            session["role"] = "compta"
+            return redirect("/admin/dashboard/finance")
 
-        error = "Mot de passe incorrect"
+        error = "Mot de passe incorrect."
 
-    return render_template("login.html", error=error)
+    return render_template_string(LOGIN_FORM_HTML, error=error)
+
 
 #================
 #  ROUTE HOME
@@ -208,9 +298,10 @@ def login():
 
 
 @app.route("/home")
-#@login_required
-def home_page():
+def home():
     return render_template_string(HOME_HTML)
+
+
 
 
 
@@ -222,7 +313,7 @@ def home_page():
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("login"))
+    return redirect("/admin/login")
 
 
 
@@ -409,16 +500,22 @@ def depenses_list():
     )
 
 
+
+
 @app.route("/resume-journalier")
-@require_role("admin", "compta")
+@require_role("admin", "compta")   # 🔐 Sécurité recommandée
 def resume_journalier():
 
-    # --- paramètres ---
+    # ======================================================
+    # 🔹 PARAMÈTRES
+    # ======================================================
     annee = request.args.get("annee", "2025-2026")
     date_debut = request.args.get("date_debut")
     date_fin = request.args.get("date_fin")
 
-    # --- WHERE dynamique ---
+    # ======================================================
+    # 🔹 WHERE DYNAMIQUE
+    # ======================================================
     where_clauses = ["c.annee_scolaire = %s"]
     params = [annee]
 
@@ -432,25 +529,36 @@ def resume_journalier():
 
     where_sql = "WHERE " + " AND ".join(where_clauses)
 
-    # --- requête SQL ---
+    # ======================================================
+    # 🔹 REQUÊTE SQL (LOGIQUE MÉTIER OFFICIELLE)
+    # ======================================================
     query = f"""
         SELECT
-            c.date_operation                           AS date_jour,
-            c.report,
-            c.bloc1,
-            c.bloc2,
-            c.bus1,
-            c.bus2,
+            c.date_operation AS date_jour,
 
-            (c.bloc1 + c.bloc2 + c.bus1 + c.bus2)     AS tot_entr,
+            COALESCE(c.report,0) AS report,
+            COALESCE(c.bloc1,0)  AS bloc1,
+            COALESCE(c.bloc2,0)  AS bloc2,
+            COALESCE(c.bus1,0)   AS bus1,
+            COALESCE(c.bus2,0)   AS bus2,
 
-            COALESCE(d.nb_depenses, 0)                AS nb_depenses,
-            COALESCE(d.total_cash, 0)                 AS total_depenses,
-            COALESCE(d.total_banque, 0)               AS banque,
+            -- ✅ Total Entré SANS report
+            (COALESCE(c.bloc1,0) + COALESCE(c.bloc2,0) +
+             COALESCE(c.bus1,0)  + COALESCE(c.bus2,0)) AS tot_entr,
 
+            COALESCE(d.nb_depenses,0)   AS nb_depenses,
+            COALESCE(d.total_cash,0)    AS total_depenses,
+            COALESCE(d.total_banque,0)  AS banque,
+
+            -- ✅ Solde réel = (Entré + Report) - Dépenses
             (
-                (c.report + c.bloc1 + c.bloc2 + c.bus1 + c.bus2)
-                - (COALESCE(d.total_cash,0) + COALESCE(d.total_banque,0))
+                (COALESCE(c.report,0) +
+                 COALESCE(c.bloc1,0) +
+                 COALESCE(c.bloc2,0) +
+                 COALESCE(c.bus1,0) +
+                 COALESCE(c.bus2,0))
+                -
+                (COALESCE(d.total_cash,0) + COALESCE(d.total_banque,0))
             ) AS solde
 
         FROM caisse_journaliere c
@@ -459,9 +567,9 @@ def resume_journalier():
             SELECT
                 date_depense,
                 annee_scolaire,
-                COUNT(*)        AS nb_depenses,
-                SUM(montant)    AS total_cash,
-                SUM(banque)     AS total_banque
+                COUNT(*) AS nb_depenses,
+                SUM(COALESCE(montant,0)) AS total_cash,
+                SUM(COALESCE(banque,0))  AS total_banque
             FROM depense
             GROUP BY date_depense, annee_scolaire
         ) d
@@ -469,14 +577,16 @@ def resume_journalier():
          AND d.annee_scolaire = c.annee_scolaire
 
         {where_sql}
-
         ORDER BY c.date_operation
     """
 
     rows = fetch_all(query, tuple(params))
 
-    # --- totaux généraux ---
+    # ======================================================
+    # 🔹 TOTAUX GÉNÉRAUX (RÈGLE MÉTIER)
+    # ======================================================
     totaux = {
+        "report": 0,
         "bloc1": 0,
         "bloc2": 0,
         "bus1": 0,
@@ -488,16 +598,23 @@ def resume_journalier():
     }
 
     for r in rows:
+        totaux["report"] += r["report"]
         totaux["bloc1"] += r["bloc1"]
         totaux["bloc2"] += r["bloc2"]
         totaux["bus1"]  += r["bus1"]
         totaux["bus2"]  += r["bus2"]
-        totaux["tot_entr"] += r["tot_entr"]
         totaux["total_depenses"] += r["total_depenses"]
         totaux["banque"] += r["banque"]
-        # ❌ NE PAS cumuler le solde
 
-    # ✅ solde final = solde du dernier jour affiché
+    # ✅ Total Entré réel (sans report)
+    totaux["tot_entr"] = (
+        totaux["bloc1"] +
+        totaux["bloc2"] +
+        totaux["bus1"] +
+        totaux["bus2"]
+    )
+
+    # ✅ Solde final = dernier jour affiché
     totaux["solde"] = rows[-1]["solde"] if rows else 0
 
     return render_template(
@@ -511,39 +628,6 @@ def resume_journalier():
 
 
 
-@app.route("/depenses-par-date")
-def depenses_par_date():
-
-    date_jour = request.args.get("date")
-    annee = request.args.get("annee")
-
-    if not date_jour or not annee:
-        return jsonify({"error": "Paramètres manquants"}), 400
-
-    query = """
-        SELECT
-            d.id,
-            d.ref_dp,
-            d.libelle,
-            d.montant,
-            d.annee_scolaire
-        FROM depense d
-        WHERE d.date_depense = %s
-          AND d.annee_scolaire = %s
-        ORDER BY d.id
-    """
-
-    rows = fetch_all(query, (date_jour, annee))
-
-    return jsonify({
-        "date": date_jour,
-        "annee": annee,
-        "nb": len(rows),
-        "depenses": rows
-    })
-
-
-
 
 
 @app.route("/")
@@ -553,13 +637,45 @@ def index():
 
 
 
-ADMIN_PASSWORDS = [
-    p.strip()
-    for p in os.environ.get("ADMIN_PASSWORDS", "").split(",")
-    if p.strip()
-]
+#===========Modal B1=======Page /thz
 
-COMPTA_PASSWORD = os.environ.get("COMPTA_PASSWORD")
+@app.route("/acces-admin-panel", methods=["POST"])
+def acces_admin_panel():
+
+    data = request.get_json(silent=True) or {}
+    password = data.get("password","")
+
+    # ADMIN_PASSWORDS est déjà défini chez toi
+    if password in ADMIN_PASSWORDS:
+        session["admin"] = True
+        session.permanent = True
+        return jsonify({"ok": True})
+
+    return jsonify({"ok": False})
+
+
+
+#===========Modal B2=======Page /thz
+
+
+@app.route("/acces-resume-journalier", methods=["POST"])
+def acces_resume_journalier():
+
+    data = request.get_json()
+    password = data.get("password", "")
+
+    # 🔐 vérification avec la variable déjà existante
+    if password == COMPTA_PASSWORD:
+        session["auth_compta"] = True
+        session.permanent = True   # 🔥 IMPORTANT
+        return jsonify({"ok": True})
+
+    return jsonify({"ok": False})
+
+
+
+
+
 
 # mots de passe admin
 
@@ -569,7 +685,6 @@ MOIS_SCOLAIRE = [
     "Sept", "Oct", "Nov", "Dec", "Janv", "Fevr",
     "Mars", "Avr", "Mai", "Juin"
 ]
-
 
 
 
@@ -830,14 +945,6 @@ def calcul_fip_par_mois(mois):
 
 
 
-# ===============================================================
-# 🔵 4. ROUTES API DE BASE
-# ===============================================================
-
-@app.route("/")
-def home():
-    return jsonify({"status": "ok", "message": "API Solde Élève opérationnelle."})
-
 
 @app.route("/api/ping")
 def ping():
@@ -846,35 +953,39 @@ def ping():
 
 @app.route("/api/eleve/<matricule>")
 def api_eleve(matricule):
+    conn = get_db_connection()
     try:
-        with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
 
-                query = """
-                    SELECT
-                        matricule,
-                        nom,
-                        sexe,
-                        classe,
-                        section,
-                        categorie,
-                        telephone
-                    FROM eleves
-                    WHERE LOWER(matricule) = LOWER(%s)
-                """
+            query = """
+                SELECT
+                    matricule,
+                    nom,
+                    sexe,
+                    classe,
+                    section,
+                    categorie,
+                    telephone
+                FROM eleves
+                WHERE LOWER(matricule) = LOWER(%s)
+            """
 
-                cur.execute(query, (matricule,))
-                eleve = cur.fetchone()
+            cur.execute(query, (matricule,))
+            eleve = cur.fetchone()
 
-                if not eleve:
-                    return jsonify({"error": "Élève introuvable"}), 404
+            if not eleve:
+                return jsonify({"error": "Élève introuvable"}), 404
 
         # 🔥 ON RENVOIE CE QUE LA BASE CONTIENT, BRUT
         return jsonify(eleve), 200
 
     except Exception as e:
         print("❌ ERREUR API ELEVE :", e)
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Erreur serveur"}), 500
+
+    finally:
+        conn.close()
+
 
 #==========================
 #    API MOBILE ELEVE
@@ -909,24 +1020,48 @@ def api_mobile_eleve(matricule):
 
 @app.route("/api/dashboard")
 def api_dashboard():
+
+    # ---------------------------
+    # 1️⃣ Connexion DB UNIQUE
+    # ---------------------------
+    conn = get_db_connection()
+
     try:
-        with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
 
-                cur.execute("SELECT COUNT(*) FROM eleves;")
-                nb_eleves = cur.fetchone()["count"]
+            # ---------------------------
+            # 2️⃣ Nombre d'élèves
+            # ---------------------------
+            cur.execute("SELECT COUNT(*) AS total FROM eleves;")
+            nb_eleves = cur.fetchone()["total"]
 
-                cur.execute("SELECT COUNT(*) FROM paiements;")
-                nb_paiements = cur.fetchone()["count"]
+            # ---------------------------
+            # 3️⃣ Nombre de paiements
+            # ---------------------------
+            cur.execute("SELECT COUNT(*) AS total FROM paiements;")
+            nb_paiements = cur.fetchone()["total"]
 
-                cur.execute("SELECT COALESCE(SUM(fip), 0) FROM paiements;")
-                total_fip = cur.fetchone()["coalesce"]
+            # ---------------------------
+            # 4️⃣ Total FIP payé
+            # ---------------------------
+            cur.execute(
+                "SELECT COALESCE(SUM(fip), 0) AS total FROM paiements;"
+            )
+            total_fip = cur.fetchone()["total"]
 
-                cur.execute(
-                    "SELECT COUNT(DISTINCT classe) FROM eleves WHERE classe IS NOT NULL;"
-                )
-                nb_classes = cur.fetchone()["count"]
+            # ---------------------------
+            # 5️⃣ Nombre de classes actives
+            # ---------------------------
+            cur.execute("""
+                SELECT COUNT(DISTINCT classe) AS total
+                FROM eleves
+                WHERE classe IS NOT NULL;
+            """)
+            nb_classes = cur.fetchone()["total"]
 
+        # ---------------------------
+        # 6️⃣ Réponse JSON propre
+        # ---------------------------
         return jsonify({
             "nb_eleves": int(nb_eleves),
             "nb_paiements": int(nb_paiements),
@@ -935,7 +1070,11 @@ def api_dashboard():
         })
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print("❌ ERREUR API DASHBOARD :", e)
+        return jsonify({"error": "Erreur serveur dashboard"}), 500
+
+    finally:
+        conn.close()
 
 
 
@@ -947,6 +1086,9 @@ PDF_CLASSE_HTML = """
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>PDF par Classe</title>
 
 <style>
@@ -1075,13 +1217,15 @@ input[type=text] {
 </html>
 """
 @app.route("/admin/pdf_classe")
-@login_required
+@require_role("admin", "compta")
+
 def admin_pdf_classe():
     return render_template_string(PDF_CLASSE_HTML)
 
 
 @app.route("/admin/pdf_classe_choix")
-@login_required
+@require_role("admin", "compta")
+
 def admin_pdf_classe_choix():
     classe = request.args.get("classe", "").strip()
 
@@ -1093,6 +1237,9 @@ def admin_pdf_classe_choix():
     <html lang="fr">
     <head>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <!-- CSS MOBILE -->
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
         <title>Choix PDF</title>
 
         <style>
@@ -1252,7 +1399,8 @@ def api_classe(classe):
 # ===============================================================
 
 @app.route("/admin/fip_section_result", methods=["GET"])
-@login_required
+@require_role("admin", "compta")
+
 def admin_fip_section_result():
     """
     Page HTML affichant le résultat FIP par section.
@@ -1277,6 +1425,9 @@ def admin_fip_section_result():
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>Résultat FIP Section</title>
 
 <style>
@@ -1390,6 +1541,9 @@ LOGIN_FORM_HTML = """
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>Connexion Administrative - CS THZ</title>
 
 <style>
@@ -1590,36 +1744,9 @@ body {
 """
 
 
-@app.route("/admin/login", methods=["GET", "POST"])
-def admin_login():
-    error = None
-
-    if request.method == "POST":
-        pwd = request.form.get("password", "").strip()
-
-        # 🔐 ACCÈS COMPTABILITÉ
-        if COMPTA_PASSWORD and pwd == COMPTA_PASSWORD:
-            session["admin_logged"] = True
-            session["admin_role"] = "comptabilite"
-            return redirect("/admin/dashboard/finance")
-
-        # 🔐 ACCÈS ADMIN GÉNÉRAL
-        if pwd in ADMIN_PASSWORDS:
-            session["admin_logged"] = True
-            session["admin_role"] = "admin"
-            return redirect("/admin/dashboard")
-
-        # ❌ ÉCHEC
-        error = "Mot de passe incorrect."
-
-    return render_template_string(LOGIN_FORM_HTML, error=error)
 
 
-@app.route("/admin/logout")
-@login_required
-def admin_logout():
-    session.pop("admin_logged", None)
-    return redirect(url_for("admin1_panel"))
+
 
 
 # ===============================================================
@@ -1631,6 +1758,9 @@ UPLOAD_FORM_HTML = """
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- CSS MOBILE -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
     <title>Importation du fichier mensuel</title>
     <style>
         body {
@@ -1697,12 +1827,14 @@ UPLOAD_FORM_HTML = """
 
 
 @app.route("/admin/upload_excel", methods=["GET"])
-@login_required
+@require_role("admin", "compta")
+
 def admin_upload_form():
     return render_template_string(UPLOAD_FORM_HTML)
 
 @app.route("/admin/upload_excel", methods=["POST"])
-@login_required
+@require_role("admin", "compta")
+
 def admin_upload_excel():
     if "excel_file" not in request.files:
         return jsonify({
@@ -1744,6 +1876,9 @@ FIP_FORM_HTML = """
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>Calcul FIP Mensuel — CS THZ</title>
 
 <style>
@@ -1908,7 +2043,8 @@ button:hover {
 """
 
 @app.route("/admin/fip", methods=["GET"])
-@login_required
+@require_role("admin", "compta")
+
 def admin_fip_form():
     return render_template_string(FIP_FORM_HTML)
  
@@ -1920,7 +2056,8 @@ def admin_fip_form():
 #============================================   
 
 @app.route("/admin/fip_mois_result", methods=["GET"])
-@login_required
+@require_role("admin", "compta")
+
 def admin_fip_mois_result():
     """
     Page HTML affichant le total FIP par mois (toutes sections).
@@ -1947,6 +2084,9 @@ def admin_fip_mois_result():
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>FIP Mensuel</title>
 
 <style>
@@ -2056,6 +2196,9 @@ DASHBOARD_HTML = """
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>Admin Dashboard - CS THZ</title>
 
 <style>
@@ -2203,7 +2346,7 @@ body {
         <a href="/admin/fip" class="menu-btn">📅 Calcul FIP Mensuel</a>
         <a href="/admin/confirm_import" class="menu-btn">📥 Import Excel</a>
         <a href="/admin/journal" class="menu-btn">📘 Journal des paiements</a>
-        <a href="/admin/logout" class="menu-btn logout">🚪 Déconnexion</a>
+        <a href="/admin1/panel" class="menu-btn logout">🚪 Déconnexion</a>
         
 
         <!-- INFOS -->
@@ -2220,7 +2363,9 @@ body {
 """
 
 @app.route("/admin/dashboard")
-@login_required
+@require_role("admin", "compta")
+
+
 def admin_dashboard():
     return render_template_string(DASHBOARD_HTML)
 
@@ -2230,7 +2375,7 @@ def admin_dashboard():
 #=================================================
 
 @app.route("/api/rapport_classe/<classe>")
-@login_required
+
 def rapport_pdf_classe(classe):
 
     type_pdf = request.args.get("type", "paye")
@@ -2410,6 +2555,9 @@ CONFIRM_IMPORT_HTML = """
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>Confirmation Import Excel</title>
 <style>
 body{
@@ -2484,7 +2632,8 @@ a{
 """
 
 @app.route("/admin/confirm_import", methods=["GET", "POST"])
-@login_required
+@require_role("admin", "compta")
+
 def admin_confirm_import():
     error = None
 
@@ -2511,6 +2660,9 @@ FIP_ELEVE_FORM_HTML = """
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>Calcul FIP Élève</title>
 
 <style>
@@ -2594,7 +2746,8 @@ a {
 """
 
 @app.route("/admin/fip_eleve")
-@login_required
+@require_role("admin", "compta")
+
 def admin_fip_eleve():
     return render_template_string(FIP_ELEVE_FORM_HTML)
 
@@ -2605,6 +2758,8 @@ def admin_fip_eleve():
 #============================================== 
 
 @app.route("/admin/fip_eleve_result")
+@require_role("admin", "compta")
+
 def admin_fip_eleve_result():
     """
     Affiche le résultat FIP élève (HTML).
@@ -2645,6 +2800,9 @@ def admin_fip_eleve_result():
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>Résultat FIP Élève</title>
 
 <style>
@@ -2742,6 +2900,9 @@ ADMIN1_PANEL_HTML = """
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<!--<meta name="viewport" content="width=device-width, initial-scale=1.0"> -->
+<!-- CSS MOBILE -->
+<!--<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">  -->
 <title>Panel Administrateur</title>
 
 <style>
@@ -3245,7 +3406,7 @@ function fermerAide() {
                     <span class="school-red">NSANGA LE THANZIE</span>
                 </div>
 
-                <a href="/logout" class="btn-logout">
+                <a href="/" class="btn-logout">
                     🔓 Déconnexion
                 </a>
 
@@ -3286,7 +3447,7 @@ function fermerAide() {
          
          <!-- BOUTON UNIQUE -->
          
-        <a href="/home" class="btn-admin">
+        <a href="/thz" class="btn-admin">
            🧾 RETOUR Home
         </a>
     </div>
@@ -3306,7 +3467,7 @@ function fermerAide() {
     <a href="#">📘 Journal Paiements</a>
     <a href="#">📄 Rapports</a>
     <a href="#">📅 Statistiques</a>
-    <a href="/admin/dashboard/finance">🧾 Comptabilité</a>
+    <a href="/admin/login">🧾 Comptabilité</a>
     <a href="#">🖨️ Documents</a>
     <a href="#">⚙️ Paramètres</a>
     <a href="javascript:void(0)" onclick="ouvrirAide()">❓ Aide</a>
@@ -3327,7 +3488,8 @@ function fermerAide() {
 """
 
 @app.route("/admin1/panel")
-#@require_role("admin")
+@require_role("admin", "compta")
+
 def admin1_panel():
     return render_template_string(ADMIN1_PANEL_HTML)
 
@@ -3342,6 +3504,9 @@ GESTION_ELEVE_HTML = """
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>Gestion des Élèves</title>
 
 <style>
@@ -3512,6 +3677,8 @@ function fermerModal() {
 # ===============================================================
 
 @app.route("/admin1/gestion_eleve")
+@require_role("admin", "compta")
+
 def gestion_eleve():
     return render_template_string(GESTION_ELEVE_HTML)
 
@@ -3521,6 +3688,8 @@ def gestion_eleve():
 # ===============================================================
 
 @app.route("/admin1/find_matricules_by_phone")
+@require_role("admin", "compta")
+
 def find_matricules_by_phone():
     phone = request.args.get("phone", "").strip()
 
@@ -3588,6 +3757,9 @@ JOURNAL_HTML = """
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>Journal des Paiements</title>
 
 <style>
@@ -3654,53 +3826,61 @@ a {
 </html>
 """
 @app.route("/admin/journal")
-@login_required
+@require_role("admin", "compta")
+
 def admin_journal():
     return render_template_string(JOURNAL_HTML)
     
     
 @app.route("/admin/journal_result")
-@login_required
+@require_role("admin", "compta")
 def admin_journal_result():
 
     date_input = request.args.get("date")
     if not date_input:
         return "Date manquante", 400
 
-    # Validation du format YYYY-MM-DD
+    # ---------------------------
+    # 1️⃣ Validation date
+    # ---------------------------
     try:
         date_cible = datetime.strptime(date_input, "%Y-%m-%d").date()
     except ValueError:
         return "Date invalide", 400
 
+    # ---------------------------
+    # 2️⃣ Connexion DB UNIQUE
+    # ---------------------------
+    conn = get_db_connection()
     try:
-        with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
 
-                query = """
-                    SELECT
-                        e.matricule,
-                        e.nom,
-                        e.classe,
-                        e.section,
-                        p.mois,
-                        p.fip,
-                        p.numrecu
-                    FROM paiements p
-                    JOIN eleves e ON p.eleve_id = e.id
-                    WHERE p.datepaiement >= %s
-                      AND p.datepaiement < %s
-                    ORDER BY e.nom
-                """
+            query = """
+                SELECT
+                    e.matricule,
+                    e.nom,
+                    e.classe,
+                    e.section,
+                    p.mois,
+                    p.fip,
+                    p.numrecu
+                FROM paiements p
+                JOIN eleves e ON p.eleve_id = e.id
+                WHERE p.datepaiement >= %s
+                  AND p.datepaiement < %s
+                ORDER BY e.nom
+            """
 
-                cur.execute(
-                    query,
-                    (date_cible, date_cible + timedelta(days=1))
-                )
+            cur.execute(
+                query,
+                (date_cible, date_cible + timedelta(days=1))
+            )
 
-                results = cur.fetchall()
+            results = cur.fetchall()
 
-        # Aucun paiement
+        # ---------------------------
+        # 3️⃣ Aucun paiement
+        # ---------------------------
         if not results:
             return f"""
             <h3 style="text-align:center;color:#c62828;">
@@ -3711,13 +3891,17 @@ def admin_journal_result():
             </div>
             """
 
-        # Calcul total
-        total_jour = sum(r["fip"] or 0 for r in results)
+        # ---------------------------
+        # 4️⃣ Total journalier
+        # ---------------------------
+        total_jour = sum((r["fip"] or 0) for r in results)
 
-        # Génération lignes tableau (CORRIGÉE)
-        rows = ""
+        # ---------------------------
+        # 5️⃣ Lignes tableau
+        # ---------------------------
+        rows_html = ""
         for i, r in enumerate(results, start=1):
-            rows += f"""
+            rows_html += f"""
             <tr>
                 <td>{i}</td>
                 <td>{r['matricule']}</td>
@@ -3730,16 +3914,21 @@ def admin_journal_result():
             </tr>
             """
 
-        # HTML final
+        # ---------------------------
+        # 6️⃣ HTML final
+        # ---------------------------
         return f"""
         <!DOCTYPE html>
         <html lang="fr">
         <head>
             <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <!-- CSS MOBILE -->
+            <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
             <title>Journal des paiements du {date_input}</title>
             <style>
                 body {{
-                    font-family: "Bookman Old Style";
+                    font-family: "Bookman Old Style", serif;
                     background: #f4f8ff;
                 }}
                 table {{
@@ -3765,7 +3954,6 @@ def admin_journal_result():
         </head>
         <body>
 
-        <!-- EN-TÊTE AVEC LOGO -->
         <div style="display:flex;align-items:center;padding:15px 40px;">
             <img src="/static/images/logo_csnst.png" style="height:75px;">
             <h2 style="margin-left:20px;color:#0d47a1;">
@@ -3787,7 +3975,7 @@ def admin_journal_result():
                 </tr>
             </thead>
             <tbody>
-                {rows}
+                {rows_html}
             </tbody>
             <tfoot>
                 <tr>
@@ -3823,63 +4011,78 @@ def admin_journal_result():
 
     except Exception as e:
         print("❌ ERREUR admin_journal_result :", e)
-        return f"Erreur serveur : {e}", 500
-        
+        return "Erreur serveur", 500
+
+    finally:
+        conn.close()
+
 
 @app.route("/api/journal_pdf/<date_iso>")
-@login_required
 def api_journal_pdf(date_iso):
+    conn = get_db_connection()
     try:
+        # ---------------------------
+        # 1️⃣ Validation de la date
+        # ---------------------------
         date_cible = datetime.strptime(date_iso, "%Y-%m-%d").date()
 
-        with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute("""
-                    SELECT
-                        e.matricule,
-                        e.nom,
-                        e.classe,
-                        e.section,
-                        p.mois,
-                        p.fip,
-                        p.numrecu
-                    FROM paiements p
-                    JOIN eleves e ON p.eleve_id = e.id
-                    WHERE p.datepaiement = %s
-                    ORDER BY e.nom
-                """, (date_cible,))
-                rows = cur.fetchall()
+        # ---------------------------
+        # 2️⃣ Requête base de données
+        # ---------------------------
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("""
+                SELECT
+                    e.matricule,
+                    e.nom,
+                    e.classe,
+                    e.section,
+                    p.mois,
+                    p.fip,
+                    p.numrecu
+                FROM paiements p
+                JOIN eleves e ON p.eleve_id = e.id
+                WHERE p.datepaiement = %s
+                ORDER BY e.nom
+            """, (date_cible,))
+            rows = cur.fetchall()
 
         if not rows:
             return "Aucune donnée à imprimer", 404
 
-        total = sum(r["fip"] or 0 for r in rows)
+        # ---------------------------
+        # 3️⃣ Calcul du total
+        # ---------------------------
+        total = sum((r["fip"] or 0) for r in rows)
 
-        # 📁 Dossier temporaire
+        # ---------------------------
+        # 4️⃣ Préparation PDF
+        # ---------------------------
         os.makedirs("temp", exist_ok=True)
         path = f"temp/journal_{date_iso}.pdf"
 
-        # 📄 DOCUMENT
         doc = SimpleDocTemplate(
             path,
             pagesize=A4,
-            rightMargin=2*cm,
-            leftMargin=2*cm,
-            topMargin=2*cm,
-            bottomMargin=2*cm
+            rightMargin=2 * cm,
+            leftMargin=2 * cm,
+            topMargin=2 * cm,
+            bottomMargin=2 * cm
         )
 
         elements = []
 
-        # 🖼️ LOGO
+        # ---------------------------
+        # 5️⃣ Logo
+        # ---------------------------
         logo_path = "static/images/logo_csnst.png"
         if os.path.exists(logo_path):
-            logo = Image(logo_path, width=4*cm, height=3*cm)
-            elements.append(logo)
+            elements.append(Image(logo_path, width=4 * cm, height=3 * cm))
 
         elements.append(Spacer(1, 12))
 
-        # 🧾 TITRE
+        # ---------------------------
+        # 6️⃣ Titre
+        # ---------------------------
         title_style = ParagraphStyle(
             name="Title",
             fontSize=14,
@@ -3887,10 +4090,15 @@ def api_journal_pdf(date_iso):
             spaceAfter=20
         )
         elements.append(
-            Paragraph(f"<b>Journal des paiements du {date_iso}</b>", title_style)
+            Paragraph(
+                f"<b>Journal des paiements du {date_iso}</b>",
+                title_style
+            )
         )
 
-        # 📊 TABLEAU
+        # ---------------------------
+        # 7️⃣ Tableau
+        # ---------------------------
         table_data = [[
             "N°", "Matricule", "Nom", "Classe",
             "Section", "Mois", "Montant", "Reçu"
@@ -3908,7 +4116,6 @@ def api_journal_pdf(date_iso):
                 r["numrecu"]
             ])
 
-        # TOTAL
         table_data.append([
             "", "", "", "", "", "TOTAL",
             total, ""
@@ -3916,25 +4123,31 @@ def api_journal_pdf(date_iso):
 
         table = Table(
             table_data,
-            colWidths=[1.2*cm, 2.2*cm, 5*cm, 1.7*cm, 1.7*cm, 1.7*cm, 2*cm, 2*cm]
+            colWidths=[
+                1.2 * cm, 2.2 * cm, 5 * cm, 1.7 * cm,
+                1.7 * cm, 1.7 * cm, 2 * cm, 2 * cm
+            ]
         )
 
         table.setStyle(TableStyle([
-            ("GRID", (0,0), (-1,-1), 0.8, colors.grey),
-            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1976d2")),
-            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-            ("ALIGN", (0,0), (-1,-1), "CENTER"),
-            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTNAME", (0,-1), (-1,-1), "Helvetica-Bold"),
-            ("BACKGROUND", (0,-1), (-1,-1), colors.HexColor("#e3f2fd")),
+            ("GRID", (0, 0), (-1, -1), 0.8, colors.grey),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1976d2")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#e3f2fd")),
         ]))
 
         elements.append(table)
-                # 📌 FOOTER COMPTABILITÉ
+
+        # ---------------------------
+        # 8️⃣ Footer
+        # ---------------------------
         footer_style = ParagraphStyle(
             name="Footer",
             fontSize=8,
-            alignment=1,   # centré
+            alignment=1,
             textColor=colors.grey,
             spaceBefore=25
         )
@@ -3943,20 +4156,26 @@ def api_journal_pdf(date_iso):
         <b>Comptabilité – CS Nsanga le Thanzie</b><br/>
         165 Av Kasangulu, croisement de l’Église<br/>
         Email : notificationnsangalethanzie@gmail.com<br/>
-        Tél : +243 974 773 760 | +243 970 292 522 |+243 996 537 573
+        Tél : +243 974 773 760 | +243 970 292 522 | +243 996 537 573
         """
 
         elements.append(Spacer(1, 20))
         elements.append(Paragraph(footer_text, footer_style))
 
-
+        # ---------------------------
+        # 9️⃣ Génération PDF
+        # ---------------------------
         doc.build(elements)
 
         return send_file(path, as_attachment=True)
 
     except Exception as e:
         print("❌ ERREUR PDF JOURNAL :", e)
-        return f"Erreur PDF : {e}", 500
+        return "Erreur PDF", 500
+
+    finally:
+        conn.close()
+
 
 
 
@@ -3965,8 +4184,7 @@ def api_journal_pdf(date_iso):
 #================================================
 
 @app.route("/api/dashboard/finance")
-@require_role("admin", "compta")
-#@login_required
+@require_api_role("admin", "compta")
 def api_dashboard_finance():
     """
     Tableau de bord financier – KPI principaux
@@ -4059,6 +4277,17 @@ def api_dashboard_finance():
     except Exception as e:
         print("❌ ERREUR KPI FINANCE :", e)
         return jsonify({"error": "Erreur serveur KPI"}), 500
+        
+  
+
+
+#========================
+#  décorateur API propre
+#========================  
+   
+
+          
+        
 
 #=========================
 # KPI HTML
@@ -4066,7 +4295,7 @@ def api_dashboard_finance():
 
 
 @app.route("/admin/dashboard/finance")
-@login_required
+@require_role("admin", "compta")
 def admin_dashboard_finance():
     """
     Page HTML du tableau de bord financier
@@ -4079,6 +4308,11 @@ DASHBOARD_FINANCE_HTML = """
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
+<!-- CSS MOBILE -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
 <title>Dashboard Financier</title>
 
 <style>
@@ -4188,9 +4422,7 @@ body {
 </div>
 
 <script>
-fetch("/api/dashboard/finance",{
-    credentials: "same-origin"
-})
+fetch("/api/dashboard/finance")
 .then(r => r.json())
 .then(data => {
     document.getElementById("nb_eleves").textContent = data.nb_eleves;
@@ -4202,9 +4434,6 @@ fetch("/api/dashboard/finance",{
 });
 </script>
 
-<!-- module pour les graphiques2 -->
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <!-- module pour les graphiques3 -->
 
@@ -4287,8 +4516,6 @@ fetch("/api/dashboard/finance",{
 </div>
 
 
-
-
 <!-- SECTION EXPLICATIVE (BANDE BLUE) -->
 
 <div style="
@@ -4357,15 +4584,142 @@ fetch("/api/dashboard/finance",{
     Tél : +243 974 773 760 / +243 995 682 745
 </div>
 
-
-
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <!-- Scripts module pour les graphiques par mois -->
 
+
+
+<!-- 📊 Graphique comparatif Total attendu vs Total encaissé-->
+
 <script>
-fetch("/api/dashboard/finance/monthly",{
-    credentials: "same-origin"
-})
+(async function () {
+
+    try {
+        const response = await fetch("/api/dashboard/finance", {
+            credentials: "same-origin" // 🔐 important pour session Render
+        });
+
+        // ❌ Si l'API renvoie une redirection ou du HTML (login)
+        if (!response.ok) {
+            throw new Error("Réponse API invalide (HTTP " + response.status + ")");
+        }
+
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+            throw new Error("API non JSON (probable redirection login)");
+        }
+
+        const data = await response.json();
+
+        // 🛑 Vérification minimale des données attendues
+        if (
+            typeof data.total_attendu === "undefined" ||
+            typeof data.total_encaisse === "undefined" ||
+            typeof data.impaye_estime === "undefined"
+        ) {
+            throw new Error("Structure JSON invalide");
+        }
+
+        const canvas = document.getElementById("compareChart");
+        if (!canvas) {
+            console.warn("Canvas compareChart introuvable");
+            return;
+        }
+
+        const ctx = canvas.getContext("2d");
+
+        // 🔁 Détruire un graphique existant (mobile / re-render)
+        if (canvas._chartInstance) {
+            canvas._chartInstance.destroy();
+        }
+
+        const chart = new Chart(ctx, {
+            type: "bar",
+            data: {
+                labels: ["Attendu", "Encaissé", "Impayé"],
+                datasets: [{
+                    label: "Montants (FIP)",
+                    data: [
+                        Number(data.total_attendu),
+                        Number(data.total_encaisse),
+                        Number(data.impaye_estime)
+                    ],
+                    backgroundColor: [
+                        "#1976d2",
+                        "#2e7d32",
+                        "#c62828"
+                    ],
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true, // ✅ STABLE mobile
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (ctx) {
+                                return ctx.raw.toLocaleString() + " FIP";
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            font: {
+                                family: "Bookman Old Style",
+                                size: 14
+                            }
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            font: {
+                                family: "Bookman Old Style",
+                                size: 14,
+                                callback: value => value.toLocaleString()
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // 🔒 Sauvegarde instance (évite doublons)
+        canvas._chartInstance = chart;
+
+    } catch (err) {
+        console.error("❌ ERREUR GRAPHIQUE COMPARATIF :", err);
+
+        // Message visuel simple (optionnel)
+        const canvas = document.getElementById("compareChart");
+        if (canvas) {
+            const parent = canvas.parentElement;
+            parent.innerHTML = `
+                <p style="
+                    text-align:center;
+                    color:#c62828;
+                    font-family:'Bookman Old Style', serif;
+                    font-size:16px;
+                ">
+                    ⚠️ Impossible de charger les données financières.<br>
+                    Vérifiez la connexion ou la session.
+                </p>
+            `;
+        }
+    }
+
+})();
+</script>
+
+<script>fetch("/api/dashboard/finance/monthly")
+
 .then(res => res.json())
 .then(data => {
 
@@ -4421,128 +4775,121 @@ fetch("/api/dashboard/finance/monthly",{
 });
 </script>
 
-
-<!-- 📊 Graphique comparatif Total attendu vs Total encaissé-->
-
 <script>
-fetch("/api/dashboard/finance",{
-    credentials: "same-origin"
-})
-.then(res => res.json())
-.then(data => {
+(async function () {
 
-    const ctx = document.getElementById("compareChart").getContext("2d");
+    try {
+        const response = await fetch("/api/dashboard/finance/by_section", {
+            credentials: "same-origin" // 🔐 indispensable Render
+        });
 
-    new Chart(ctx, {
-        type: "bar",
-        data: {
-            labels: ["Attendu", "Encaissé", "Impayé"],
-            datasets: [{
-                label: "Montants (FIP)",
-                data: [
-                    data.total_attendu,
-                    data.total_encaisse,
-                    data.impaye_estime
-                ],
-                backgroundColor: [
-                    "#1976d2",
-                    "#2e7d32",
-                    "#c62828"
-                ],
-                borderRadius: 6
-            }]
-        },
-        options: {
-            responsive: true,
-            /* ❌ ON SUPPRIME maintainAspectRatio:false */
-            plugins: {
-                legend: {
-                    display: false
-                }
+        // ❌ Réponse invalide (401, 302, 500…)
+        if (!response.ok) {
+            throw new Error("Réponse API invalide (HTTP " + response.status + ")");
+        }
+
+        // ❌ Render peut renvoyer HTML (login)
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+            throw new Error("API non JSON (probable redirection login)");
+        }
+
+        const data = await response.json();
+
+        // 🛑 Validation minimale
+        if (
+            !Array.isArray(data.labels) ||
+            !Array.isArray(data.values) ||
+            data.labels.length === 0
+        ) {
+            throw new Error("Données section invalides ou vides");
+        }
+
+        const canvas = document.getElementById("sectionChart");
+        if (!canvas) {
+            console.warn("Canvas sectionChart introuvable");
+            return;
+        }
+
+        const ctx = canvas.getContext("2d");
+
+        // 🔁 Évite double rendu (mobile / rechargement)
+        if (canvas._chartInstance) {
+            canvas._chartInstance.destroy();
+        }
+
+        const chart = new Chart(ctx, {
+            type: "doughnut",
+            data: {
+                labels: data.labels,
+                datasets: [{
+                    data: data.values.map(v => Number(v)),
+                    backgroundColor: [
+                        "#1976d2",
+                        "#2e7d32",
+                        "#fb8c00",
+                        "#6a1b9a",
+                        "#c62828",
+                        "#00838f",
+                        "#558b2f",
+                        "#455a64"
+                    ]
+                }]
             },
-            scales: {
-                x: {
-                    ticks: {
-                        font: {
-                            family: "Bookman Old Style",
-                            size: 14
+            options: {
+                responsive: true,
+                maintainAspectRatio: true, // ✅ OBLIGATOIRE doughnut mobile
+                plugins: {
+                    legend: {
+                        position: "bottom",
+                        labels: {
+                            font: {
+                                family: "Bookman Old Style",
+                                size: 13
+                            },
+                            padding: 12
                         }
-                    }
-                },
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        font: {
-                            family: "Bookman Old Style",
-                            size: 14
-                        }
-                    }
-                }
-            }
-        }
-    });
-});
-</script>
-
-
-<script>
-fetch("/api/dashboard/finance/by_section",{
-    credentials: "same-origin"
-})
-.then(res => res.json())
-.then(data => {
-
-    const ctx = document.getElementById("sectionChart");
-
-    new Chart(ctx, {
-        type: "doughnut",
-        data: {
-            labels: data.labels,
-            datasets: [{
-                data: data.values,
-                backgroundColor: [
-                    "#1976d2",
-                    "#2e7d32",
-                    "#fb8c00",
-                    "#6a1b9a",
-                    "#c62828",
-                    "#00838f",
-                    "#558b2f",
-                    "#455a64"
-                ]
-            }]
-        },
-        options: {
-            responsive: true,          // ✅ OUI
-            maintainAspectRatio: true, // ✅ OBLIGATOIRE POUR DOUGHNUT
-
-            plugins: {
-                legend: {
-                    position: "bottom",
-                    labels: {
-                        font: {
-                            family: "Bookman Old Style",
-                            size: 13
-                        },
-                        padding: 12
-                    }
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return (
-                                context.label +
-                                " : " +
-                                context.raw.toLocaleString() +
-                                " FIP"
-                            );
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                return (
+                                    context.label +
+                                    " : " +
+                                    context.raw.toLocaleString() +
+                                    " FIP"
+                                );
+                            }
                         }
                     }
                 }
             }
+        });
+
+        // 🔒 Sauvegarde instance
+        canvas._chartInstance = chart;
+
+    } catch (err) {
+        console.error("❌ ERREUR GRAPHIQUE SECTION :", err);
+
+        const canvas = document.getElementById("sectionChart");
+        if (canvas) {
+            const parent = canvas.parentElement;
+            parent.innerHTML = `
+                <p style="
+                    text-align:center;
+                    color:#c62828;
+                    font-family:'Bookman Old Style', serif;
+                    font-size:16px;
+                ">
+                    ⚠️ Impossible de charger la répartition par section.<br>
+                    Vérifiez la connexion ou la session.
+                </p>
+            `;
         }
-    });
-});
+    }
+
+})();
 </script>
 
 
@@ -4555,8 +4902,7 @@ fetch("/api/dashboard/finance/by_section",{
 #=============================
 
 @app.route("/api/dashboard/finance/monthly")
-@require_role("admin", "compta")
-#@login_required
+@require_api_role("admin", "compta")
 def api_dashboard_finance_monthly():
     """
     Retourne les montants encaissés par mois scolaire
@@ -4608,8 +4954,7 @@ def api_dashboard_finance_monthly():
         
         
 @app.route("/api/dashboard/finance/by_section")
-@require_role("admin", "compta")
-#@login_required
+@require_api_role("admin", "compta")
 def api_dashboard_finance_by_section():
     """
     Répartition financière par section
@@ -4649,10 +4994,9 @@ def api_dashboard_finance_by_section():
 def api_depenses_par_date():
 
     date_jour = request.args.get("date")
-    annee = request.args.get("annee")
 
-    if not date_jour or not annee:
-        return jsonify({"error": "date ou année manquante"}), 400
+    if not date_jour:
+        return jsonify({"error": "date manquante"}), 400
 
     query = """
         SELECT
@@ -4663,30 +5007,30 @@ def api_depenses_par_date():
             d.annee_scolaire
         FROM depense d
         WHERE d.date_depense = %s
-          AND d.annee_scolaire = %s
         ORDER BY d.id
     """
 
-    rows = fetch_all(query, (date_jour, annee))
+    rows = fetch_all(query, (date_jour,))
 
     return jsonify({
         "date": date_jour,
-        "annee": annee,
         "nb": len(rows),
         "depenses": rows
     })
 
-
-
-
-#========= PAGE HOME ==========
-
+    
+    
+#===============HOME=========   
 
 HOME_HTML = """
 <!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<!--<meta name="viewport" content="width=device-width, initial-scale=1.0"> -->
+
+<!-- CSS MOBILE -->
+<!--<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}"> -->
 <title>Accueil - CS Nsanga le Thanzie</title>
 
 <style>
@@ -5093,8 +5437,6 @@ body {
 }
 
 
-
-
 /* ================= MULTIMEDIA ================= */
 .media {
     display:grid;
@@ -5181,7 +5523,7 @@ body {
         <span class="line green"></span>
         <span class="line red"></span>
 
-        <a href="/logout" class="btn-logout-inline">
+        <a href="/thz" class="btn-logout-inline">
             Déconnexion
         </a>
     </div>
@@ -5362,14 +5704,11 @@ updateDateTime();
 setInterval(updateDateTime, 1000);
 </script>
 
-
-
-
-
-
 </body>
 </html>
 """
+
+
 
 
 

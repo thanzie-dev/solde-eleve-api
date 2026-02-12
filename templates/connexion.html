@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
+
+<title>Connexion — NSTHZ</title>
+
+<style>
+
+/* ===============================
+        BACKGROUND ANIMÉ
+================================ */
+
+body{
+
+    margin:0;
+    height:100vh;
+
+    font-family:"Bookman Old Style", serif;
+
+    background:linear-gradient(
+        130deg,
+        #0f4c81,
+        #3a7bd5,
+        #00d2ff
+    );
+
+    background-size:400% 400%;
+
+    animation:bgMove 12s ease infinite;
+
+    display:flex;
+    flex-direction:column;
+}
+
+@keyframes bgMove{
+
+    0%{background-position:0% 50%;}
+    50%{background-position:100% 50%;}
+    100%{background-position:0% 50%;}
+}
+
+
+/* ===============================
+            HEADER
+================================ */
+
+.header{
+
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+
+    padding:25px 60px;
+
+    color:white;
+}
+
+.logo{
+    height:70px;
+}
+
+/* TITRE PREMIUM */
+
+.title{
+
+    font-size:42px;
+    font-weight:bold;
+
+    text-align:center;
+
+    flex:1;
+
+    letter-spacing:3px;
+
+    text-shadow:
+        0 4px 10px rgba(0,0,0,.4);
+}
+
+
+/* HORLOGE */
+
+.clock{
+
+    position:absolute;
+    right:70px;
+    top:110px;
+
+    padding:12px 26px;
+
+    border-radius:12px;
+
+    backdrop-filter:blur(12px);
+
+    background:rgba(255,255,255,.25);
+
+    color:#fff;
+
+    font-weight:bold;
+
+    box-shadow:0 8px 20px rgba(0,0,0,.35);
+}
+
+
+/* ===============================
+        MESSAGE + LIGNES
+================================ */
+
+.separator{
+
+    position:relative;
+    margin:20px 60px;
+}
+
+.line-blue{
+    height:6px;
+    background:#0d47a1;
+}
+
+.line-red{
+    height:6px;
+    background:#c62828;
+}
+
+.marquee{
+
+    position:absolute;
+    left:50%;
+    transform:translateX(-50%);
+
+    top:-14px;
+
+    background:white;
+    padding:8px 40px;
+
+    font-weight:bold;
+    color:#0d47a1;
+
+    border-radius:8px;
+
+    box-shadow:0 4px 10px rgba(0,0,0,.2);
+}
+
+
+/* ===============================
+        CARD GLASS
+================================ */
+
+.card{
+
+    width:420px;
+
+    margin:70px auto;
+
+    padding:40px;
+
+    border-radius:18px;
+
+    backdrop-filter:blur(18px);
+
+    background:rgba(255,255,255,.18);
+
+    box-shadow:
+        0 12px 35px rgba(0,0,0,.35);
+
+    text-align:center;
+}
+
+
+/* ===============================
+        BOULES
+================================ */
+
+.dots{
+
+    display:flex;
+    justify-content:center;
+    gap:12px;
+    margin-bottom:25px;
+}
+
+.dot{
+
+    width:14px;
+    height:14px;
+
+    border-radius:50%;
+
+    background:#bbb;
+
+    transition:.3s;
+}
+
+.dot.active{
+    background:#00ffcc;
+    box-shadow:0 0 12px #00ffcc;
+}
+
+
+/* ===============================
+        INPUT PREMIUM
+================================ */
+
+input{
+
+    width:100%;
+    padding:14px;
+
+    border-radius:8px;
+
+    border:none;
+
+    outline:none;
+
+    font-size:16px;
+
+    margin-bottom:18px;
+}
+
+
+/* ===============================
+        BOUTON
+================================ */
+
+button{
+
+    width:100%;
+
+    padding:14px;
+
+    border:none;
+
+    border-radius:10px;
+
+    font-size:18px;
+
+    font-weight:bold;
+
+    color:white;
+
+    cursor:pointer;
+
+    background:linear-gradient(
+        90deg,
+        #0d47a1,
+        #1976d2
+    );
+
+    transition:.25s;
+}
+
+button:hover{
+
+    transform:scale(1.04);
+}
+
+
+/* ===============================
+        FOOTER
+================================ */
+
+.footer{
+
+    margin-top:auto;
+
+    display:flex;
+
+    background:#0d47a1;
+
+    color:white;
+
+    padding:25px;
+}
+
+.footer-left{
+    width:35%;
+}
+
+.footer-text{
+
+    width:65%;
+
+    background:white;
+
+    color:#333;
+
+    padding:15px;
+
+    border-radius:10px;
+}
+
+
+/* ===============================
+        BANDE NOIRE
+================================ */
+
+.bottom{
+
+    background:black;
+    color:white;
+    text-align:center;
+    padding:8px;
+}
+
+</style>
+</head>
+
+
+<body>
+
+
+<!-- HEADER -->
+
+<div class="header">
+
+<img src="/static/images/logo_csnst.png" class="logo">
+
+<div class="title">
+BIENVENUE DANS NOTRE SYSTÈME NSTHZ
+</div>
+
+<img src="/static/images/logo_csnst1.png" class="logo">
+
+</div>
+
+
+<div class="clock" id="clock"></div>
+
+
+
+<!-- LIGNES + MESSAGE -->
+
+<div class="separator">
+
+<div class="line-blue"></div>
+<div class="line-red"></div>
+
+<div class="marquee">
+Système sécurisé — Toutes les données sont protégées.
+</div>
+
+</div>
+
+
+
+<!-- CARD -->
+
+<div class="card">
+
+<div class="dots">
+<div class="dot"></div>
+<div class="dot"></div>
+<div class="dot"></div>
+<div class="dot"></div>
+</div>
+
+<input
+type="password"
+placeholder="Entrez le mot de passe"
+id="pwd">
+
+<button onclick="login()">
+Se connecter
+</button>
+
+</div>
+
+
+
+<!-- FOOTER -->
+
+<div class="footer">
+
+<div class="footer-left">
+Facebook : Nsanga thanzie<br>
+Youtube : Nsanga le Thanzie école<br>
+www.csnsangalethanzie.org
+</div>
+
+<div class="footer-text">
+La gestion du Complexe Scolaire Nsanga Le Thanzie
+se distingue par son sérieux, sa vision et son efficacité.
+</div>
+
+</div>
+
+
+<div class="bottom">
+165 Av Kasangulu croisement de l’Église — Lubumbashi — RDC
+</div>
+
+
+
+<script>
+
+/* HORLOGE */
+
+setInterval(()=>{
+    document.getElementById("clock").innerHTML =
+    new Date().toLocaleString("fr-FR");
+},1000);
+
+
+
+/* ANIMATION BOULES */
+
+function animateDots(){
+
+    const dots=document.querySelectorAll(".dot");
+
+    dots.forEach((d,i)=>{
+        setTimeout(()=>{
+            d.classList.add("active");
+        },i*150);
+    });
+}
+
+
+
+/* LOGIN DEMO */
+
+function login(){
+
+    animateDots();
+
+    setTimeout(()=>{
+        window.location="/home";
+    },900);
+
+}
+
+</script>
+
+
+</body>
+</html>

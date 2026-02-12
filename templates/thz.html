@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<!-- <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">-->
+
+<title>Connexion — NSTHZ</title>
+
+<style>
+
+/* RESET */
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+}
+
+html,body{
+overflow-x:hidden;
+}
+
+/* BODY */
+
+body{
+min-height:100vh;
+font-family:"Bookman Old Style", serif;
+
+background:linear-gradient(145deg,#4a86b8,#3c78a8);
+
+display:flex;
+flex-direction:column;
+}
+
+/* HEADER */
+
+.header{
+position:relative;
+text-align:center;
+padding-top:40px;
+}
+
+.title{
+font-size:68px;
+font-weight:bold;
+color:#ffcc33;
+
+text-shadow:
+0 4px 0 #996600,
+0 8px 18px rgba(0,0,0,0.45);
+
+letter-spacing:3px;
+}
+
+.logo-center{
+width:190px;
+margin:25px auto;
+display:block;
+
+filter:drop-shadow(0 18px 25px rgba(0,0,0,.55));
+}
+
+/* CLOCK */
+
+.clock{
+position:absolute;
+right:60px;
+top:95px;
+
+background:linear-gradient(145deg,#e6e6e6,#9aa7b6);
+
+padding:12px 26px;
+border-radius:12px;
+
+font-size:18px;
+font-weight:bold;
+
+box-shadow:0 6px 12px rgba(0,0,0,.35);
+}
+
+/* PANEL */
+
+.panel{
+width:min(420px,90%);
+margin:60px auto;
+
+background:rgba(255,255,255,.15);
+border-radius:14px;
+padding:22px;
+
+box-shadow:
+inset 0 0 10px rgba(255,255,255,.3),
+0 10px 25px rgba(0,0,0,.35);
+}
+
+.btn-grid{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:14px;
+}
+
+.menu-btn{
+padding:14px;
+font-weight:bold;
+font-size:16px;
+
+background:linear-gradient(#ffffff,#dcdcdc);
+
+border:1px solid #888;
+border-radius:8px;
+
+cursor:pointer;
+transition:.25s;
+}
+
+.menu-btn:hover{
+transform:translateY(-4px);
+box-shadow:0 6px 12px rgba(0,0,0,.4);
+}
+
+.menu-btn.active{
+color:red;
+}
+
+/* FOOTER */
+
+.footer{
+margin-top:auto;
+height:140px;
+
+background:
+radial-gradient(circle at 20% 50%,#ffe066,#ffffff),
+radial-gradient(circle at 80% 50%,#a066ff,#ffffff);
+}
+
+/* MODAL PRO */
+
+.modal{
+position:fixed;
+top:50%;
+left:50%;
+transform:translate(-50%,-50%) scale(.9);
+
+width:min(600px,95%);
+
+background:linear-gradient(145deg,#eaf2fb,#d8e6f7);
+border-radius:16px;
+
+box-shadow:0 35px 80px rgba(0,0,0,.65);
+
+display:none;
+z-index:999;
+
+animation:fadeIn .25s ease;
+}
+
+@keyframes fadeIn{
+from{
+opacity:0;
+transform:translate(-50%,-50%) scale(.8);
+}
+to{
+opacity:1;
+transform:translate(-50%,-50%) scale(1);
+}
+}
+
+/* HEADER MODAL */
+
+.modal-header{
+background:linear-gradient(135deg,#1e3c72,#2a5298);
+color:white;
+
+padding:18px;
+font-size:18px;
+letter-spacing:1px;
+
+cursor:move;
+
+border-radius:16px 16px 0 0;
+
+display:flex;
+justify-content:space-between;
+}
+
+/* BANDE BLEUE */
+
+.marquee-wrapper{
+padding:14px 20px;
+}
+
+.marquee{
+overflow:hidden;
+white-space:nowrap;
+
+background:#0d47a1;
+color:white;
+
+padding:10px;
+border-radius:8px;
+
+font-weight:bold;
+}
+
+.marquee span{
+display:inline-block;
+padding-left:100%;
+animation:scroll 14s linear infinite;
+}
+
+@keyframes scroll{
+0%{transform:translateX(0);}
+100%{transform:translateX(-100%);}
+}
+
+/* BODY */
+
+.modal-body{
+padding:26px;
+}
+
+.input-row{
+display:flex;
+gap:12px;
+flex-wrap:wrap;
+margin-bottom:25px;
+}
+
+/* INPUT */
+
+.input-row input{
+flex:1;
+padding:14px;
+border-radius:8px;
+border:1px solid #9fb3d6;
+font-size:16px;
+}
+
+/* CLOCK MODAL */
+
+.modal-clock{
+background:#1e3c72;
+color:white;
+
+padding:14px;
+border-radius:8px;
+font-weight:bold;
+}
+
+/* GRID */
+
+.modal-grid{
+display:grid;
+grid-template-columns:repeat(5,1fr);
+gap:12px;
+}
+
+/* BUTTONS */
+
+.modal-grid button{
+padding:16px;
+background:linear-gradient(#ffffff,#e4ecf7);
+
+border:2px solid white;
+border-radius:8px;
+
+font-weight:bold;
+font-size:15px;
+
+cursor:pointer;
+transition:.25s;
+}
+
+.modal-grid button:hover{
+transform:translateY(-4px);
+box-shadow:0 8px 18px rgba(0,0,0,.35);
+}
+
+.close{
+cursor:pointer;
+}
+
+/* MOBILE */
+
+@media (max-width:768px){
+
+.title{font-size:34px;}
+.logo-center{width:120px;}
+
+.clock{
+position:relative;
+margin:15px auto;
+right:auto;
+top:auto;
+}
+
+.btn-grid{grid-template-columns:repeat(2,1fr);}
+.modal-grid{grid-template-columns:repeat(2,1fr);}
+
+}
+
+@media (max-width:480px){
+
+.title{font-size:26px;}
+.btn-grid{grid-template-columns:1fr;}
+.logo-center{width:95px;}
+
+}
+
+
+/* ===============================
+   BOUTON QUITTER PRO
+================================ */
+
+.quit-wrapper{
+    display:flex;
+    justify-content:center;
+    margin-top:-35px;
+    margin-bottom:25px;
+}
+
+.sortie-btn{
+    display:inline-block;
+    padding:14px 40px;
+
+    font-family:"Bookman Old Style", serif;
+    font-size:18px;
+    font-weight:bold;
+    letter-spacing:1px;
+
+    color:white;
+    text-decoration:none;
+
+    background:linear-gradient(145deg,#c62828,#8e0000);
+    border-radius:10px;
+
+    box-shadow:
+    0 6px 14px rgba(0,0,0,.45),
+    inset 0 1px 0 rgba(255,255,255,.2);
+
+    transition:.25s;
+}
+
+.sortie-btn:hover{
+    transform:translateY(-3px);
+    background:linear-gradient(145deg,#e53935,#b71c1c);
+    box-shadow:0 10px 22px rgba(0,0,0,.55);
+}
+
+
+
+
+
+</style>
+</head>
+
+<body>
+
+<!-- HEADER -->
+
+<div class="header">
+
+<div class="title">
+SYSTEME DE GESTION THANZIE
+</div>
+
+<img src="/static/images/logo_csnst.png" class="logo-center">
+
+<div class="clock" id="clock"></div>
+
+</div>
+
+<!-- PANEL -->
+
+<div class="panel">
+
+<div class="btn-grid">
+
+<button class="menu-btn">PRES</button>
+<button class="menu-btn active" id="openModal">ON</button>
+<button class="menu-btn">1ACC</button>
+
+<button class="menu-btn">2ACC</button>
+<button class="menu-btn">3ACC</button>
+<button class="menu-btn">4ACC</button>
+
+</div>
+
+</div>
+
+<div class="quit-wrapper">
+    <a href="/" class="sortie-btn">QUITTER</a>
+</div>
+
+
+
+<div class="footer"></div>
+
+<!-- MODAL -->
+
+<div id="loginModal" class="modal">
+
+<div class="modal-header" id="dragZone">
+🔐 AUTHENTIFICATION
+<span class="close" onclick="closeModal()">✕</span>
+</div>
+
+<div class="marquee-wrapper">
+<div class="marquee">
+<span>
+Bienvenue sur le Portail NSANGA LE THANZIE. Veuillez saisir votre mot de passe correct pour accéder aux différents modules.
+</span>
+</div>
+</div>
+
+<div class="modal-body">
+
+<!-- 🔐 FORM SECURISEE -->
+<form method="POST" action="/login">
+
+<div class="input-row">
+<input 
+type="password"
+id="passwordInput"
+name="password"
+placeholder="MOT DE PASSE"
+required
+>
+
+<div class="modal-clock" id="modalClock"></div>
+</div>
+
+<div class="modal-grid">
+
+<button type="submit" id="btnB1">B1</button>
+<button type="button" id="btnB2">B2</button>
+<button type="button">B3</button>
+<button type="button">B4</button>
+<button type="button">B5</button>
+<button type="button">B6</button>
+<button type="button">B7</button>
+<button type="button">B8</button>
+<button type="button">B9</button>
+<button type="button">B10</button>
+
+</div>
+
+</form>
+
+</div>
+</div>
+
+<script>
+
+/* CLOCK */
+
+function updateClock(){
+
+const now=new Date();
+
+document.getElementById("clock").innerHTML=
+now.toLocaleDateString("fr-FR")+" "+now.toLocaleTimeString("fr-FR");
+
+document.getElementById("modalClock").innerHTML=
+now.toLocaleTimeString("fr-FR");
+
+}
+
+setInterval(updateClock,1000);
+updateClock();
+
+/* OPEN MODAL */
+
+document.getElementById("openModal")
+.addEventListener("click",()=>{
+document.getElementById("loginModal").style.display="block";
+});
+
+/* CLOSE */
+
+function closeModal(){
+document.getElementById("loginModal").style.display="none";
+}
+
+/* DRAG MODAL */
+
+const modal=document.getElementById("loginModal");
+const drag=document.getElementById("dragZone");
+
+let offsetX=0,offsetY=0,isDown=false;
+
+drag.addEventListener("mousedown",(e)=>{
+isDown=true;
+offsetX=e.clientX-modal.offsetLeft;
+offsetY=e.clientY-modal.offsetTop;
+});
+
+document.addEventListener("mouseup",()=>isDown=false);
+
+document.addEventListener("mousemove",(e)=>{
+if(!isDown) return;
+
+modal.style.left=e.clientX-offsetX+"px";
+modal.style.top=e.clientY-offsetY+"px";
+modal.style.transform="none";
+});
+
+
+document.getElementById("btnB1").addEventListener("click", async function(){
+
+    const pwd = document.getElementById("passwordInput").value.trim();
+
+    try{
+
+        const res = await fetch("/acces-admin-panel",{
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify({ password: pwd })
+        });
+
+        if(!res.ok){
+            alert("Erreur serveur.");
+            return;
+        }
+
+        const data = await res.json();
+
+        if(data.ok){
+            window.location.href="/admin1/panel";
+        }else{
+            alert("Code administrateur incorrect.");
+        }
+
+    }catch(err){
+        console.error(err);
+        alert("Connexion impossible.");
+    }
+
+});
+
+
+
+
+document.getElementById("btnB2").addEventListener("click", async function(){
+
+    const pwd = document.getElementById("passwordInput").value.trim();
+
+    try{
+
+        const res = await fetch("/acces-resume-journalier",{
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify({ password: pwd })
+        });
+
+        if(!res.ok){
+            alert("Erreur serveur.");
+            return;
+        }
+
+        const data = await res.json();
+
+        if(data.ok){
+            window.location.href="/resume-journalier";
+        }else{
+            alert("Mot de passe incorrect.");
+        }
+
+    }catch(err){
+        console.error(err);
+        alert("Connexion impossible au serveur.");
+    }
+
+});
+
+
+
+</script>
+
+</body>
+</html>

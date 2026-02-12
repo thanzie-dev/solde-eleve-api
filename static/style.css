@@ -16,6 +16,15 @@ main {
    NAVIGATION & HEADER SIMPLE
    ===================================================== */
 
+.group-header th {
+    background-color: #2c3e50;
+    color: #ffffff;
+    font-size: 15px;
+    letter-spacing:0.5px;
+    text-transform:uppercase;
+}
+
+
 header {
     background-color: #2c3e50;
     color: white;
@@ -65,9 +74,7 @@ th {
     font-weight: bold;
 }
 
-td {
-    text-align: right;
-}
+
 
 /* =====================================================
    FORMULAIRES
@@ -89,6 +96,10 @@ button {
     margin-left: 10px;
     cursor: pointer;
 }
+.filtre-form {
+    margin:15px;
+}
+
 
 /* =====================================================
    EN-TÊTE INSTITUTIONNEL
@@ -105,6 +116,7 @@ button {
 }
 
 /* GAUCHE : LOGO + BANDE */
+
 .header-left {
     display: flex;
     align-items: center;
@@ -112,42 +124,54 @@ button {
 }
 
 .header-left img {
-    height: 70px;
+    height: 90px;
 }
 
 /* Bande bleu / rouge */
-.header-band {
+
+
+.header-bands {
     width: 220px;
 }
 
-.band-blue {
-    height: 6px;
-    background-color: #0033a0;
+.band-blue{
+    height:5px;
+    width:200px;
+    background:#0033a0;
 }
 
-.band-red {
-    height: 6px;
-    background-color: #c0392b;
+.band-red{
+    height:5px;
+    width:200px;
+    background:#c0392b;
+    margin-top:3px;
 }
+
 
 /* Texte défilant */
-.scrolling-text {
-    height: 24px;
-    overflow: hidden;
-    background: #f8f9fa;
-    position: relative;
+
+.scrolling-text{
+    margin-top:6px;
+    width:200px;
+    height:22px;
+    overflow:hidden;
+    position:relative;
+    background:#f8f9fa;
 }
 
-.scrolling-text span {
-    position: absolute;
-    white-space: nowrap;
-    font-size: 13px;
-    font-weight: bold;
-    color: #2c3e50;
-    animation: scroll-left 12s linear infinite;
+.scrolling-text span{
+    position:absolute;
+    white-space:nowrap;
+    font-size:13px;
+    font-weight:bold;
+    color:#2c3e50;
+    animation:scroll-left 10s linear infinite;
 }
+
 
 /* CENTRE : TITRE */
+
+
 .header-center {
     text-align: center;
     font-family: "Bookman Old Style", "Times New Roman", serif;
@@ -158,6 +182,7 @@ button {
 }
 
 /* DROITE : NOM COMPLEXE */
+
 .header-right {
     text-align: right;
     font-family: "Bookman Old Style", "Times New Roman", serif;
@@ -180,12 +205,6 @@ button {
 /* =====================================================
    TABLEAU RÉSUMÉ JOURNALIER
    ===================================================== */
-
-.group-header th {
-    background-color: #2c3e50;
-    color: #ffffff;
-    font-size: 15px;
-}
 
 .sub-header th {
     background-color: #ecf0f1;
@@ -233,17 +252,19 @@ tfoot tr {
    BOUTON DÉTAILS
    ===================================================== */
 
-.btn-detail {
-    margin-top: 4px;
-    padding: 3px 6px;
-    font-size: 12px;
-    cursor: pointer;
+.btn-detail{
+    padding:2px 8px;
+    font-size:12px;
+    border:1px solid #999;
+    background:#f0f0f0;
+    border-radius:3px;
 }
 
-.btn-detail:hover {
-    background-color: #2c3e50;
-    color: white;
+.btn-detail:hover{
+    background:#2c3e50;
+    color:white;
 }
+
 
 /* =====================================================
    PANNEAU DÉPENSES (DÉTAILS)
@@ -255,6 +276,13 @@ tfoot tr {
     border: 1px solid #ccc;
     background: #f9fafb;
 }
+
+.depenses-panel{
+    margin-top:25px;
+    box-shadow:0 2px 6px rgba(0,0,0,0.08);
+}
+
+
 
 #depenses-info {
     margin-bottom: 10px;
@@ -283,9 +311,11 @@ tfoot tr {
     font-weight: bold;
 }
 
-.logout-link:hover {
-    text-decoration: underline;
+.logout-btn {
+    color:#c0392b;
+    font-weight:bold;
 }
+
 
 
 .login-retour {
@@ -328,7 +358,24 @@ tfoot tr {
     box-shadow: 0 4px 10px rgba(0,0,0,0.15);
 }
 
-.btn-print:hover {
-    background: #08306b;
+/* Alternance lignes */
+tbody tr:nth-child(even){
+    background:#f9fafb;
 }
+
+/* Survol souris */
+tbody tr:hover{
+    background:#eef2f7;
+}
+
+td {
+    text-align:right;
+    font-variant-numeric: tabular-nums;
+}
+
+table{
+    box-shadow:0 2px 6px rgba(0,0,0,0.08);
+}
+
+
 

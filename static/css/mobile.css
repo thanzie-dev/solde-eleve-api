@@ -1,0 +1,43 @@
+/* mobile.css */
+
+/* 1. Sécurité de calcul des tailles */
+* {
+    box-sizing: border-box;
+}
+
+/* 2. Style global */
+body {
+    margin: 0;
+    font-family: "Bookman Old Style", serif;
+}
+
+/* 3. CONTENEUR RESPONSIVE (IMPORTANT) */
+.container {
+    width: 100%;           /* prend toute la largeur de l’écran */
+    max-width: 480px;      /* limite sur téléphone */
+    margin: 20px auto;     /* centre sur PC */
+    padding: 16px;         /* espace intérieur */
+}
+
+
+.card {
+    width: 100%;
+    padding: 20px;
+    background: white;
+    border-radius: 14px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+input, select, button {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+button {
+    background-color: #0d6efd;
+    color: white;
+    border: none;
+    border-radius: 6px;
+}

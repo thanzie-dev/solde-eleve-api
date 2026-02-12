@@ -1,30 +1,273 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <title>Connexion</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSS MOBILE -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}">
+
+<title>Connexion - NSTHZ</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: "Bookman Old Style", serif;
+    background: #f4f6fb;
+}
+
+/* ================= HEADER ================= */
+
+.header img {
+    height: 85px;
+}
+
+.header h1 {
+    text-align: center;
+    font-size: 26px;
+    font-weight: bold;
+    color: #000;
+}
+
+
+
+/* ================= SEPARATEUR ================= */
+
+.separator {
+    position: relative;
+    margin-top: 10px;
+}
+
+.line-blue {
+    height: 6px;
+    background: #0d47a1;
+}
+
+.line-red {
+    height: 6px;
+    background: #c62828;
+}
+
+/* MESSAGE DÉFILANT */
+.marquee-box {
+    position: absolute;
+    left: 50%;
+    top: -8px;
+    transform: translateX(-50%);
+    background: #fff;
+    padding: 6px 20px;
+    border: 1px solid #000;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    width: 420px;
+}
+
+.marquee-text {
+    display: inline-block;
+    animation: scroll-left 18s linear infinite;
+}
+
+@keyframes scroll-left {
+    from { transform: translateX(100%); }
+    to   { transform: translateX(-100%); }
+}
+
+/* DATE HEURE */
+.datetime-box {
+    position: absolute;
+    right: 20px;
+    top: -10px;
+    background: #fff;
+    border: 1px solid #000;
+    padding: 5px 12px;
+    font-size: 14px;
+}
+
+/* ================= ZONE CONNEXION ================= */
+
+.login-zone {
+    margin: 60px auto;
+    width: 420px;
+    background: #dfe9f7;
+    padding: 30px;
+    border: 2px solid #0d47a1;
+    text-align: center;
+}
+
+/* INDICATEURS */
+.indicators {
+    margin-bottom: 15px;
+}
+
+.dot {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #bbb;
+    margin: 0 5px;
+    opacity: 0.3;
+}
+
+.dot.active {
+    opacity: 1;
+}
+
+/* FORMULAIRE */
+.login-zone label {
+    font-weight: bold;
+    display: block;
+    margin-bottom: 8px;
+}
+
+.login-zone input {
+    width: 90%;
+    padding: 10px;
+    border: 2px solid #7cb342;
+    font-size: 16px;
+}
+
+.login-zone button {
+    margin-top: 18px;
+    padding: 10px 28px;
+    background: #4472c4;
+    color: white;
+    border: 2px solid #000;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+/* ================= FOOTER ================= */
+
+.footer {
+    background: #4472c4;
+    color: white;
+    display: flex;
+    padding: 20px 30px;
+    gap: 20px;
+}
+
+.footer-left {
+    width: 35%;
+    font-size: 14px;
+}
+
+.footer-right {
+    background: white;
+    color: #000;
+    padding: 15px;
+    border-radius: 6px;
+    font-size: 14px;
+    flex: 1;
+}
+
+/* ================= BANDE NOIRE ================= */
+
+.bottom-bar {
+    background: #000;
+    color: white;
+    text-align: center;
+    padding: 8px;
+    font-size: 14px;
+}
+</style>
 </head>
+
 <body>
 
-<main style="max-width:400px;margin:60px auto;">
-    <h2 style="text-align:center;">Connexion sécurisée</h2>
-
-    {% if error %}
-        <p style="color:red;text-align:center;">{{ error }}</p>
-    {% endif %}
-
-    <form method="post">
-        <label>Mot de passe :</label><br>
-        <input type="password" name="password" required style="width:100%;padding:6px;">
-        <br><br>
-        <button type="submit" style="width:100%;">Se connecter</button>
-    </form>
-	<div class="login-retour">
-    <a href="/admin1/panel" class="btn-retour"> ⬅ Retour</a>
+<!-- HEADER -->
+<div class="header">
+    <img src="/static/images/logo_csnst.png">
+    <h1>BIENVENUE DANS NOTRE SYSTÈME NSTHZ</h1>
+    <img src="/static/images/logo_csnst1.png">
 </div>
 
-</main>
+<!-- SEPARATEUR -->
+<div class="separator">
+    <div class="line-blue"></div>
+    <div class="line-red"></div>
+
+    <div class="marquee-box">
+        <div class="marquee-text">
+            🔐 Système sécurisé – Accès contrôlé – Protection des données scolaires
+        </div>
+    </div>
+
+    <div class="datetime-box" id="datetime"></div>
+</div>
+
+<!-- ZONE CONNEXION -->
+<div class="login-zone">
+
+    <div class="indicators">
+        <span class="dot" id="d1"></span>
+        <span class="dot" id="d2"></span>
+        <span class="dot" id="d3"></span>
+        <span class="dot" id="d4"></span>
+    </div>
+
+    <label>MOT DE PASSE</label>
+    <input type="password" id="password">
+
+    <br>
+    <button onclick="verifierConnexion()">Se connecter</button>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+    <div class="footer-left">
+        Facebook : Nsanga Thanzie<br>
+        YouTube : Nsanga Thanzie École<br>
+        Web : www.csnsangalethanzie.org
+    </div>
+
+    <div class="footer-right">
+        La gestion du Complexe Scolaire Nsanga le Thanzie se distingue par son sérieux,
+        sa vision et son efficacité. Grâce à une organisation rigoureuse et une
+        administration attentive, l’établissement assure un cadre propice à
+        l’excellence académique.
+    </div>
+</div>
+
+<!-- BANDE NOIRE -->
+<div class="bottom-bar">
+    165 Av Kasangulu, croisement de l’Église – Q/Gambela2 – C/Lubumbashi – RDC
+</div>
+
+<script>
+/* DATE HEURE */
+function updateDateTime() {
+    const now = new Date();
+    document.getElementById("datetime").innerHTML =
+        now.toLocaleDateString('fr-FR') + " " +
+        now.toLocaleTimeString('fr-FR');
+}
+setInterval(updateDateTime, 1000);
+updateDateTime();
+
+/* ANIMATION + REDIRECTION */
+function verifierConnexion() {
+    const pwd = document.getElementById("password").value;
+    const dots = [d1, d2, d3, d4];
+    let i = 0;
+
+    const interval = setInterval(() => {
+        dots.forEach(d => d.classList.remove("active"));
+        dots[i].classList.add("active");
+        i = (i + 1) % dots.length;
+    }, 200);
+
+    setTimeout(() => {
+        clearInterval(interval);
+
+        if (pwd === "ILSTKB26" || pwd === "1971celeste") {
+            window.location.href = "/home";
+        } else {
+            alert("Mot de passe incorrect");
+        }
+    }, 2000);
+}
+</script>
 
 </body>
 </html>
