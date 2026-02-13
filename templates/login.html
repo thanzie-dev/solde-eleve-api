@@ -28,6 +28,12 @@ body {
     color: #000;
 }
 
+.header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:10px 20px;
+}
 
 
 /* ================= SEPARATEUR ================= */
@@ -170,6 +176,60 @@ body {
     padding: 8px;
     font-size: 14px;
 }
+/* ================= MOBILE PRO ================= */
+
+@media (max-width: 600px){
+
+    .header{
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap:8px;
+    }
+
+    .header img{
+        height:60px;
+    }
+
+    .header h1{
+        font-size:18px;
+        text-align:center;
+    }
+
+    .login-zone{
+        width:92%;
+        margin:40px auto;
+        padding:20px;
+    }
+
+    .marquee-box{
+        width:90%;
+        font-size:12px;
+    }
+
+    .datetime-box{
+        position:static;
+        margin:10px auto;
+        text-align:center;
+    }
+
+    .footer{
+        flex-direction:column;
+        gap:10px;
+    }
+
+    .footer-left{
+        width:100%;
+        text-align:center;
+    }
+
+}
+
+
+
+
+
+
 </style>
 </head>
 
@@ -235,7 +295,7 @@ body {
 </div>
 
 <script>
-/* DATE HEURE */
+/* ================= DATE HEURE ================= */
 function updateDateTime() {
     const now = new Date();
     document.getElementById("datetime").innerHTML =
@@ -245,29 +305,62 @@ function updateDateTime() {
 setInterval(updateDateTime, 1000);
 updateDateTime();
 
-/* ANIMATION + REDIRECTION */
-function verifierConnexion() {
-    const pwd = document.getElementById("password").value;
-    const dots = [d1, d2, d3, d4];
+/* ================= CONNEXION SÉCURISÉE ================= */
+
+async function verifierConnexion() {
+
+    const pwd = document.getElementById("password").value.trim();
+
+    const dots = [
+        document.getElementById("d1"),
+        document.getElementById("d2"),
+        document.getElementById("d3"),
+        document.getElementById("d4")
+    ];
+
     let i = 0;
 
+    /* Animation PRO */
     const interval = setInterval(() => {
         dots.forEach(d => d.classList.remove("active"));
         dots[i].classList.add("active");
         i = (i + 1) % dots.length;
     }, 200);
 
-    setTimeout(() => {
+    try {
+
+        const res = await fetch("/acces-admin-panel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: pwd })
+        });
+
         clearInterval(interval);
 
-        if (pwd === "ILSTKB26" || pwd === "1971celeste") {
-            window.location.href = "/home";
-        } else {
-            alert("Mot de passe incorrect");
+        if (!res.ok) {
+            alert("Erreur serveur.");
+            return;
         }
-    }, 2000);
+
+        const data = await res.json();
+
+        if (data.ok) {
+
+            // ✅ redirection sécurisée
+            window.location.href = "/home";
+
+        } else {
+            alert("Mot de passe incorrect.");
+        }
+
+    } catch (err) {
+        clearInterval(interval);
+        console.error(err);
+        alert("Connexion impossible.");
+    }
 }
 </script>
+
 
 </body>
 </html>

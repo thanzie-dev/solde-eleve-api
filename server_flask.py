@@ -643,7 +643,8 @@ def index():
 def acces_admin_panel():
 
     data = request.get_json(silent=True) or {}
-    password = data.get("password","")
+    password = data.get("password", "")
+
 
     # ADMIN_PASSWORDS est déjà défini chez toi
     if password in ADMIN_PASSWORDS:
