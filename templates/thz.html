@@ -68,7 +68,7 @@ filter:drop-shadow(0 18px 25px rgba(0,0,0,.55));
 .clock{
 position:absolute;
 right:60px;
-top:95px;
+top:140px; /* 🔥 on descend la date */
 
 background:linear-gradient(145deg,#e6e6e6,#9aa7b6);
 
@@ -142,9 +142,12 @@ radial-gradient(circle at 80% 50%,#a066ff,#ffffff);
 position:fixed;
 top:50%;
 left:50%;
-transform:translate(-50%,-50%) scale(.9);
+transform:translate(-50%,-50%);
 
-width:min(600px,95%);
+width:90%;
+max-width:1100px;
+
+height:90vh;
 
 background:linear-gradient(145deg,#eaf2fb,#d8e6f7);
 border-radius:16px;
@@ -154,8 +157,10 @@ box-shadow:0 35px 80px rgba(0,0,0,.65);
 display:none;
 z-index:999;
 
-animation:fadeIn .25s ease;
+overflow:hidden; /* important */
 }
+
+
 
 @keyframes fadeIn{
 from{
@@ -219,7 +224,9 @@ animation:scroll 14s linear infinite;
 /* BODY */
 
 .modal-body{
-padding:26px;
+padding:10px;
+height:calc(100% - 120px);
+overflow-y:auto;
 }
 
 .input-row{
@@ -352,6 +359,58 @@ top:auto;
 
 
 
+.modal-small{
+width:450px;
+max-width:90%;
+
+height:auto;
+
+transform:translate(-50%,-50%);
+
+overflow:hidden;
+}
+
+
+
+
+
+/* ===============================
+   Formulaire FIP
+================================ */
+
+
+.modal-overlay{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,0.5);
+display:none;
+z-index:998;
+}
+
+
+
+.btn-cmd{
+    background:linear-gradient(#ffffff,#e4ecf7);
+    border:2px solid white;
+    border-radius:8px;
+
+    font-weight:bold;
+    font-size:13px;
+
+    cursor:pointer;
+
+    box-shadow:0 4px 8px rgba(0,0,0,0.25);
+    transition:.25s;
+}
+
+.btn-cmd:hover{
+    transform:translateY(-4px);
+    box-shadow:0 8px 18px rgba(0,0,0,.35);
+}
+
 
 
 </style>
@@ -381,7 +440,8 @@ SYSTEME DE GESTION THANZIE
 
 <button class="menu-btn">PRES</button>
 <button class="menu-btn active" id="openModal">ON</button>
-<button class="menu-btn">1ACC</button>
+<!--<button class="menu-btn">1ACC</button> -->
+<button class="menu-btn" id="openFormPaiement">1ACC</button>
 
 <button class="menu-btn">2ACC</button>
 <button class="menu-btn">3ACC</button>
@@ -401,7 +461,7 @@ SYSTEME DE GESTION THANZIE
 
 <!-- MODAL -->
 
-<div id="loginModal" class="modal">
+<div id="loginModal" class="modal modal-small">
 
 <div class="modal-header" id="dragZone">
 🔐 AUTHENTIFICATION
@@ -452,6 +512,491 @@ required
 
 </div>
 </div>
+
+
+
+<!-- MODAL FORMULAIRE PAIEMENT -->
+
+<div id="overlay" class="modal-overlay"></div>
+
+<div id="formPaiementModal" class="modal">
+
+<!--<div class="modal-header"> -->
+<div class="modal-header" id="dragPaiement">
+
+
+💰 FORMULAIRE DE PAIEMENT
+
+<span class="close" onclick="closeFormPaiement()">✕</span>
+</div>
+
+<div class="marquee-wrapper">
+<div class="marquee">
+<span>
+Veuillez saisir les informations de paiement des frais scolaires
+</span>
+</div>
+</div>
+
+<div class="modal-body">
+
+<div style="
+min-height:600px;
+background:#efefef;
+border:2px solid #999;
+padding:10px;
+">
+
+
+
+<!--/*FORMULAIRE EN CONSTRUCTION */-->
+
+<!-- ===== BLOC HAUT ===== -->
+<div style="border:2px solid #999; background:#efefef; padding:6px;">
+
+<div style="display:flex; gap:8px; align-items:stretch;">
+
+<!-- 🔹 GAUCHE -->
+<div style="flex:3; border:2px solid #5a6aa6; padding:8px; background:#e8e8e8;">
+
+<div style="display:flex; gap:15px; align-items:flex-start;">
+
+<!-- COLONNE 1 -->
+<div>
+
+<!-- MAT -->
+<div style="display:flex; align-items:center; margin-bottom:8px;">
+<label style="width:110px; font-size:12px;">N° MAT INSC</label>
+
+<input style="
+width:3cm;
+height:1cm;
+background:white;
+border:1px solid #999;
+">
+</div>
+
+<!-- SEXE -->
+<div style="display:flex; align-items:center;">
+<label style="width:110px; font-size:12px;">SEXE</label>
+
+<input style="
+width:2cm;
+height:1cm;
+background:white;
+border:1px solid #999;
+">
+</div>
+
+</div>
+
+<!-- OBS -->
+<fieldset style="
+border:2px solid gold;
+padding:5px;
+height:85px;
+display:flex;
+flex-direction:column;
+justify-content:center;
+">
+<legend style="color:red; font-weight:bold; font-size:12px;">OBS</legend>
+
+<input style="width:60px; height:35px;">
+</fieldset>
+
+<!-- COLONNE 2 -->
+<div>
+
+<!-- RECU -->
+<div style="display:flex; align-items:center; margin-bottom:8px;">
+<label style="width:110px; font-size:12px;">N° RECU</label>
+
+<input style="
+width:3cm;
+height:1cm;
+background:white;
+border:1px solid #999;
+">
+</div>
+
+<!-- CATEGORIE -->
+<div style="display:flex; align-items:center;">
+<label style="width:110px; font-size:12px;">CATEGORIE</label>
+
+<select style="
+width:2cm;
+height:1cm;
+background:white;
+border:1px solid #999;
+">
+</select>
+</div>
+
+</div>
+
+</div>
+</div>
+
+
+<!-- 🔹 DROITE -->
+<div style="flex:2; border:2px solid red; padding:8px; background:#f4f4f4;">
+
+<!-- CHECK + INPUT -->
+<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+
+<button class="btn-cmd" style="height:45px; width:120px;">
+CHECK
+</button>
+
+<input style="
+width:5cm;
+height:1cm;
+background:#e5e5a8;
+border:1px solid #999;
+">
+
+</div>
+
+
+<!-- BOUTON EFF -->
+<div style="text-align:center;">
+<button class="btn-cmd" style="
+width:3cm;
+height:1cm;
+
+background:linear-gradient(#ffffcc,#ffeb3b);
+">
+EFF
+</button>
+</div>
+
+</div>
+
+</div>
+</div>
+
+
+
+
+
+<!-- ===== INFO PRO - ELEVES ===== -->
+
+<fieldset style="
+border:2px solid #999;
+margin-top:10px;
+padding:10px;
+background:#efefef;
+">
+
+<legend style="font-weight:bold; font-size:12px;">
+INFO PRO - ELEVES
+</legend>
+
+<div style="display:flex; gap:15px; flex-wrap:wrap;">
+
+<!-- ================= LEFT ================= -->
+<div style="flex:2;">
+
+<div style="display:flex; flex-direction:column; gap:8px;">
+
+<div style="display:flex; align-items:center;">
+<label style="width:200px; font-size:12px;">
+NOM - POSTNOM & Prenom
+</label>
+<input style="width:5cm; height:1cm;">
+</div>
+
+<div style="display:flex; align-items:center;">
+<label style="width:200px; font-size:12px;">CLASSE</label>
+<input style="width:5cm; height:1cm;">
+</div>
+
+<div style="display:flex; align-items:center;">
+<label style="width:200px; font-size:12px;">FIP</label>
+<input style="width:5cm; height:1cm;">
+</div>
+
+<div style="display:flex; align-items:center;">
+<label style="width:200px; font-size:12px;">
+Frais de Fonctionnement
+</label>
+<input style="width:5cm; height:1cm;">
+</div>
+
+<div style="display:flex; align-items:center;">
+<label style="width:200px; font-size:12px;">Jour</label>
+<input style="width:5cm; height:1cm;">
+</div>
+
+<div style="display:flex; align-items:center;">
+<label style="width:200px; font-size:12px;">Mois</label>
+<input style="width:5cm; height:1cm;">
+</div>
+
+<div style="display:flex; align-items:center;">
+<label style="width:200px; font-size:12px;">DATE</label>
+<input style="width:5cm; height:1cm;">
+</div>
+
+<div style="display:flex; align-items:center;">
+<label style="width:200px; font-size:12px;">SECTION</label>
+
+<select style="width:1.5cm; height:1cm;"></select>
+
+<span style="margin:0 5px; color:red; font-weight:bold;">
+AN SC
+</span>
+
+<input style="width:1.5cm; height:1cm;">
+</div>
+
+</div>
+
+</div>
+
+<!-- ================= RIGHT ================= -->
+<div style="flex:2;">
+
+<!-- PHOTO -->
+<div style="
+border:2px solid #999;
+height:150px;
+margin-bottom:10px;
+display:flex;
+align-items:center;
+justify-content:center;
+background:white;
+">
+PHOTO
+</div>
+
+<!-- SCAN / INPUT / POSE -->
+<div style="
+border:2px solid purple;
+padding:10px;
+margin-bottom:10px;
+display:flex;
+align-items:center;
+justify-content:space-between;
+">
+
+<button style="padding:10px 20px;">SCANNE</button>
+
+<input style="width:5cm; height:1cm; background:purple;">
+
+<button style="padding:10px 20px;">POSE</button>
+
+</div>
+
+<!-- ===== COMMANDE ===== -->
+<fieldset style="
+border:2px solid #5a6aa6;
+padding:10px;
+">
+
+<legend style="font-size:12px;">
+COMMANDE
+</legend>
+
+<div style="
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:10px;
+">
+
+<button style="height:45px;">V INSC</button>
+<button style="height:45px;">TRANSFER</button>
+<button style="height:45px;">QUIT</button>
+
+<button style="height:45px;">RECHERCHE</button>
+<button style="height:45px;">SUPRIMER</button>
+<button style="height:45px;">NV</button>
+
+</div>
+
+</fieldset>
+
+</div>
+
+</div>
+
+</fieldset>
+
+
+
+<!-- ===== ZONE BASSE ===== -->
+
+<div style="display:flex; gap:10px; margin-top:10px;">
+
+<!-- ================= GAUCHE ================= -->
+<div style="flex:1;">
+
+<!-- BANDE BLEUE -->
+<div style="height:6px; background:blue; margin-bottom:5px;"></div>
+
+<!-- CADRE -->
+<div style="
+border:2px solid #999;
+padding:10px;
+background:#efefef;
+">
+
+<div style="
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:10px;
+margin-bottom:10px;
+">
+
+<button class="btn-cmd">V FIP</button>
+<button class="btn-cmd" style="background:linear-gradient(#f3c1e8,#d98bd2);">ENR</button>
+<button class="btn-cmd" style="background:linear-gradient(#66ff66,#00cc00);">TRANSP</button>
+
+</div>
+
+<div style="
+display:grid;
+grid-template-columns:repeat(2,1fr);
+gap:10px;
+">
+
+<button class="btn-cmd" style="color:red;">INSC</button>
+<button class="btn-cmd">SMS</button>
+
+</div>
+
+
+</div>
+
+</div>
+
+<!-- ================= DROITE ================= -->
+<div style="flex:1;">
+
+<!-- BANDE ROUGE -->
+<div style="height:6px; background:red; margin-bottom:5px;"></div>
+
+<!-- CADRE -->
+<div style="
+border:2px solid #999;
+padding:10px;
+background:#efefef;
+">
+
+<div style="display:flex; gap:10px; align-items:center;">
+
+<button class="btn-cmd" style="width:130px;">
+CONTROLE
+</button>
+
+<select style="
+width:5cm;
+height:1cm;
+background:#e6b27a;
+border:1px solid #999;
+"></select>
+
+<button class="btn-cmd" style="
+width:120px;
+background:linear-gradient(#ffffcc,#fff176);
+">
+CAISSE
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+
+<!-- ===== BANDE HAUTE ===== -->
+<div style="height:6px; background:yellow; margin-top:10px;"></div>
+
+<!-- ===== CADRE NOTIFICATION ===== -->
+<fieldset style="
+border:2px solid #999;
+padding:10px;
+background:#efefef;
+margin-top:5px;
+">
+
+<legend style="color:blue; font-weight:bold;">
+NOTIFICATION
+</legend>
+
+<div style="display:flex; align-items:center; gap:15px; flex-wrap:wrap;">
+
+<!-- EMAIL -->
+<label style="font-weight:bold;">E - MAIL</label>
+<input style="width:10cm; height:1cm;">
+
+<!-- TEL -->
+<label style="font-weight:bold; color:blue;">TEL</label>
+<input style="width:8cm; height:1cm;">
+
+<!-- PSC -->
+<button class="btn-cmd" style="
+width:80px;
+background:linear-gradient(#c8f7c5,#7ed957);
+">
+PSC
+</button>
+
+</div>
+
+</fieldset>
+
+<!-- ===== BANDE BASSE ===== -->
+<div style="height:6px; background:blue; margin-top:10px;"></div>
+
+<!-- ===== ZONE FINALE ===== -->
+<div style="
+display:flex;
+justify-content:space-between;
+align-items:center;
+margin-top:5px;
+">
+
+<!-- GAUCHE : NOTIFICATION -->
+<div style="
+background:#e53935;
+color:white;
+padding:8px 15px;
+font-weight:bold;
+">
+PERIODE ACTIVE
+</div>
+
+<!-- DROITE : RAPPEL -->
+<button class="btn-cmd" style="
+background:linear-gradient(#ff4d4d,#cc0000);
+color:white;
+width:120px;
+">
+RAPPEL
+</button>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 <script>
 
@@ -575,6 +1120,49 @@ document.getElementById("btnB2").addEventListener("click", async function(){
     }
 
 });
+
+
+
+
+
+// OUVRIR FORMULAIRE PAIEMENT
+document.getElementById("openFormPaiement")
+.addEventListener("click", () => {
+    document.getElementById("formPaiementModal").style.display = "block";
+	document.getElementById("overlay").style.display = "block"; // ajout
+});
+
+
+
+// FERMER
+function closeFormPaiement(){
+    document.getElementById("formPaiementModal").style.display = "none";
+	document.getElementById("overlay").style.display = "none"; // ajout
+}
+
+// DRAG MODAL PAIEMENT
+const modalPaiement = document.getElementById("formPaiementModal");
+const dragPaiement = document.getElementById("dragPaiement");
+
+let offsetX2 = 0, offsetY2 = 0, isDown2 = false;
+
+dragPaiement.addEventListener("mousedown", (e) => {
+    isDown2 = true;
+    offsetX2 = e.clientX - modalPaiement.offsetLeft;
+    offsetY2 = e.clientY - modalPaiement.offsetTop;
+});
+
+document.addEventListener("mouseup", () => isDown2 = false);
+
+document.addEventListener("mousemove", (e) => {
+    if (!isDown2) return;
+
+    modalPaiement.style.left = e.clientX - offsetX2 + "px";
+    modalPaiement.style.top = e.clientY - offsetY2 + "px";
+    modalPaiement.style.transform = "none"; // 🔥 important
+});
+
+
 
 
 

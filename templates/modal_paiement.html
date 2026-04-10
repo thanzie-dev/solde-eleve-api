@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Paiement Frais Scolaires</title>
+
+<style>
+body {
+    font-family: "Bookman Old Style", serif;
+    background: linear-gradient(to right, #e3f2fd, #ffffff);
+    margin: 0;
+}
+
+/* 🔷 HEADER */
+.header {
+    background: #1565c0;
+    color: white;
+    text-align: center;
+    padding: 12px;
+    font-weight: bold;
+}
+
+/* 🔷 MARQUEE */
+.marquee {
+    background: #bbdefb;
+    padding: 8px;
+    text-align: center;
+    font-size: 14px;
+}
+
+/* 🔷 CONTAINER */
+.container {
+    width: 95%;
+    margin: 15px auto;
+}
+
+/* 🔷 GRID */
+.grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 15px;
+}
+
+/* 🔷 CARDS */
+.card {
+    background: white;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+
+/* 🔷 INPUT */
+input, select {
+    width: 100%;
+    padding: 8px;
+    margin: 5px 0;
+}
+
+/* 🔷 BUTTONS */
+.btn {
+    padding: 10px;
+    border: none;
+    cursor: pointer;
+    color: white;
+    border-radius: 6px;
+}
+
+.btn-blue { background: #1976d2; }
+.btn-green { background: #2e7d32; }
+.btn-red { background: #c62828; }
+.btn-orange { background: #ef6c00; }
+
+/* 🔷 GROUP BUTTON */
+.group-btn {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+/* 🔷 NOTIFICATION */
+.notification {
+    background: #e8f5e9;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 6px;
+    color: green;
+    font-weight: bold;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+COMPLEXE SCOLAIRE NSANGA LE THANZIE
+</div>
+
+<div class="marquee">
+Aujourd’hui : <b id="dateNow"></b> — Veuillez contacter l’administrateur en cas de problème
+</div>
+
+<div class="container">
+
+<form method="POST">
+
+<div class="grid">
+
+<!-- 🔷 GAUCHE -->
+<div class="card">
+
+<h3>📌 Identification Élève</h3>
+
+<input type="text" name="matricule" placeholder="N° MAT INSC" required>
+
+<button type="button" class="btn btn-blue" onclick="chargerEleve()">🔍 RECHERCHE</button>
+
+<input type="text" id="nom" placeholder="Nom complet" readonly>
+<input type="text" id="classe" placeholder="Classe" readonly>
+<input type="text" id="section" placeholder="Section" readonly>
+
+<h3>💰 Paiement</h3>
+
+<select name="mois" required>
+<option value="">-- Mois --</option>
+<option>Sept</option><option>Oct</option><option>Nov</option>
+<option>Dec</option><option>Janv</option><option>Fevr</option>
+<option>Mars</option><option>Avr</option><option>Mai</option><option>Juin</option>
+</select>
+
+<input type="number" name="montant" placeholder="Montant FIP" required>
+
+<input type="date" name="date">
+
+<div class="group-btn">
+<button class="btn btn-green">✅ ENR</button>
+<button type="reset" class="btn btn-red">🧹 SUPPRIMER</button>
+</div>
+
+</div>
+
+<!-- 🔷 DROITE -->
+<div class="card">
+
+<h3>⚙️ Commandes</h3>
+
+<button type="button" class="btn btn-blue">📋 V INSC</button>
+<button type="button" class="btn btn-orange">📊 V FIP</button>
+<button type="button" class="btn btn-blue">🚍 TRANSP</button>
+
+<br><br>
+
+<button type="button" class="btn btn-green">💼 CAISSE</button>
+<button type="button" class="btn btn-red">🚪 QUITTER</button>
+
+</div>
+
+</div>
+
+</form>
+
+{% if message %}
+<div class="notification">
+{{ message }}
+</div>
+{% endif %}
+
+</div>
+
+<script>
+// Date automatique
+document.getElementById("dateNow").innerText =
+new Date().toLocaleDateString();
+
+// Charger élève
+function chargerEleve() {
+    let matricule = document.querySelector('[name="matricule"]').value;
+
+    fetch(`/api/eleve/${matricule}`)
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("nom").value = data.nom || "";
+        document.getElementById("classe").value = data.classe || "";
+        document.getElementById("section").value = data.section || "";
+    });
+}
+</script>
+
+</body>
+</html>

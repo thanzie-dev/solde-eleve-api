@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Formulaire Paiement (Modal)</title>
+
+<style>
+body {
+    font-family: Arial;
+    background: rgba(0,0,0,0.5);
+}
+
+/* 🔷 MODAL */
+.modal {
+    width: 95%;
+    margin: 10px auto;
+    background: #dcdcdc;
+    border: 2px solid #888;
+    padding: 5px;
+}
+
+/* 🔷 HEADER */
+.header {
+    background: #e6e6e6;
+    padding: 5px;
+    text-align: center;
+    font-weight: bold;
+}
+
+/* 🔷 BARRE VIOLETTE */
+.top-bar {
+    background: purple;
+    color: white;
+    text-align: center;
+    padding: 5px;
+    margin: 5px 0;
+}
+
+/* 🔷 GRID PRINCIPAL */
+.main {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 5px;
+}
+
+/* 🔷 BLOCS */
+.block {
+    border: 2px solid #999;
+    padding: 5px;
+    background: #efefef;
+}
+
+/* 🔷 LABEL + INPUT */
+.row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.row label {
+    width: 150px;
+}
+
+.row input, .row select {
+    flex: 1;
+}
+
+/* 🔷 ZONE DROITE */
+.right-box {
+    border: 2px solid red;
+    padding: 10px;
+    background: #f5f5f5;
+}
+
+/* 🔷 BOUTONS */
+.btn {
+    padding: 8px;
+    margin: 3px;
+    border: none;
+    cursor: pointer;
+}
+
+.btn-pink { background: #e91e63; color:white; }
+.btn-green { background: #00e600; }
+.btn-blue { background: #2196f3; color:white; }
+.btn-gray { background: #ccc; }
+
+/* 🔷 BAS */
+.bottom {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 5px;
+}
+
+/* 🔷 NOTIFICATION */
+.notification {
+    border-top: 3px solid yellow;
+    padding: 5px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="modal">
+
+<!-- 🔷 HEADER -->
+<div class="header">
+COMPLEXE SCOLAIRE NSANGA LE THANZIE
+</div>
+
+<!-- 🔷 BARRE -->
+<div class="top-bar">
+Aujourd’hui : vendredi 03 avril 2026 *FRAIS SC*
+</div>
+
+<!-- 🔷 PARTIE HAUTE -->
+<div class="main">
+
+<!-- 🔷 GAUCHE -->
+<div class="block">
+
+<div class="row">
+<label>N° MAT INSC</label>
+<input type="text" name="matricule">
+</div>
+
+<div class="row">
+<label>SEXE</label>
+<select></select>
+</div>
+
+<div class="row">
+<label>OBS</label>
+<input type="text">
+</div>
+
+<div class="row">
+<label>N° RECU</label>
+<input type="text">
+</div>
+
+<div class="row">
+<label>CATEGORIE</label>
+<select></select>
+</div>
+
+</div>
+
+<!-- 🔷 DROITE -->
+<div class="right-box">
+<button class="btn btn-gray">CHEK</button>
+<input type="text" style="width:100%;margin-top:5px;">
+</div>
+
+</div>
+
+<!-- 🔷 INFO ELEVE -->
+<div class="block">
+
+<h4>INFO PRO - ELEVES</h4>
+
+<div class="row">
+<label>NOM</label>
+<input type="text" id="nom">
+</div>
+
+<div class="row">
+<label>CLASSE</label>
+<input type="text" id="classe">
+</div>
+
+<div class="row">
+<label>FIP</label>
+<input type="text">
+</div>
+
+<div class="row">
+<label>Frais Fonctionnement</label>
+<input type="text">
+</div>
+
+<div class="row">
+<label>JOUR</label>
+<input type="text">
+</div>
+
+<div class="row">
+<label>MOIS</label>
+<input type="text" name="mois">
+</div>
+
+<div class="row">
+<label>DATE</label>
+<input type="date">
+</div>
+
+<div class="row">
+<label>SECTION</label>
+<input type="text">
+</div>
+
+</div>
+
+<!-- 🔷 COMMANDES -->
+<div class="block">
+
+<h4>COMMANDE</h4>
+
+<button class="btn btn-gray">V INSC</button>
+<button class="btn btn-blue">TRANSFER</button>
+<button class="btn btn-pink">RECHERCHE</button>
+<button class="btn btn-gray">SUPPRIMER</button>
+<button class="btn btn-gray">QUITTER</button>
+
+</div>
+
+<!-- 🔷 BOUTONS BAS -->
+<div class="bottom">
+
+<div>
+<button class="btn btn-gray">V FIP</button>
+<button class="btn btn-pink">ENR</button>
+<button class="btn btn-green">TRANSP</button>
+<button class="btn btn-red">INSC</button>
+</div>
+
+<div>
+<button class="btn btn-gray">CONTROLE</button>
+<button class="btn btn-gray">CAISSE</button>
+</div>
+
+</div>
+
+<!-- 🔷 NOTIFICATION -->
+<div class="notification">
+E-MAIL <input type="text">
+TEL <input type="text">
+<button>PSC</button>
+</div>
+
+<div style="background:red;color:white;padding:5px;margin-top:5px;">
+PERIODE ACTIVE
+</div>
+
+</div>
+
+</body>
+</html>

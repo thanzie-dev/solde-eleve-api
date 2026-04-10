@@ -26,7 +26,9 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
 import import_excel_pg as import_excel
-
+from dotenv import load_dotenv
+load_dotenv()
+from import_inscription_pg import importer_inscriptions
 
 
 
@@ -332,6 +334,200 @@ def db_test():
 
     return render_template("db_test.html", total=total)
 
+
+#=======================
+#  ROUTE INSCRIPTION
+#=======================
+
+
+@app.route("/import-inscriptions")
+def import_inscriptions():
+
+    password = request.args.get("password")
+
+    # récupérer les mots de passe admin
+    admin_passwords = os.environ.get("ADMIN_PASSWORDS", "").split(",")
+
+    if password not in admin_passwords:
+        return "⛔ Accès refusé", 403
+
+    try:
+        run_import()
+        return "✅ Import terminé avec succès"
+    except Exception as e:
+        return f"❌ Erreur : {str(e)}", 500
+
+
+
+
+@app.route("/stats-inscriptions")
+def stats_inscriptions():
+    try:
+        conn = psycopg.connect(os.getenv("DATABASE_URL"))
+        cur = conn.cursor()
+
+        # Total
+        cur.execute("SELECT COUNT(*) FROM inscription")
+        total = cur.fetchone()[0]
+
+        # Par catégorie
+        cur.execute("""
+            SELECT categorie, COUNT(*) 
+            FROM inscription 
+            GROUP BY categorie
+        """)
+        categories = dict(cur.fetchall())
+
+        # Par classe
+        cur.execute("""
+            SELECT classe, COUNT(*) 
+            FROM inscription 
+            GROUP BY classe 
+            ORDER BY classe
+        """)
+        classes = dict(cur.fetchall())
+
+        # Par section
+        cur.execute("""
+            SELECT section, COUNT(*) 
+            FROM inscription 
+            GROUP BY section
+        """)
+        sections = dict(cur.fetchall())
+
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "total": total,
+            "categories": categories,
+            "classes": classes,
+            "sections": sections
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+#=====inscr
+
+@app.route("/api/dashboard-inscription")
+def api_dashboard_inscription():
+    import psycopg
+    from flask import jsonify
+
+    conn = psycopg.connect(DATABASE_URL)
+    cur = conn.cursor()
+
+    # KPI
+    cur.execute("SELECT COUNT(*) FROM inscription")
+    total = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM inscription WHERE categorie='PY'")
+    py = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM inscription WHERE categorie='ABD'")
+    abd = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM inscription WHERE categorie='NPY'")
+    npy = cur.fetchone()[0]
+
+    cur.execute("SELECT SUM(finsc) FROM inscription")
+    montant = cur.fetchone()[0] or 0
+
+    # Par section
+    cur.execute("""
+        SELECT section, COUNT(*) 
+        FROM inscription 
+        GROUP BY section
+    """)
+    sections = cur.fetchall()
+
+    # Par catégorie
+    cur.execute("""
+        SELECT categorie, COUNT(*) 
+        FROM inscription 
+        GROUP BY categorie
+    """)
+    categories = cur.fetchall()
+
+    conn.close()
+
+    return jsonify({
+        "kpi": {
+            "total": total,
+            "py": py,
+            "abd": abd,
+            "npy": npy,
+            "montant": float(montant)
+        },
+        "sections": sections,
+        "categories": categories
+    })
+  
+#=====inscr  
+    
+@app.route("/dashboard-inscription")
+def dashboard_inscription():
+    return render_template("dashboard_inscription.html")    
+
+
+@app.route("/api/dashboard-filtre")
+def api_dashboard_filtre():
+    import psycopg
+    from flask import request
+
+    section = request.args.get("section")
+    categorie = request.args.get("categorie")
+
+    where = []
+    params = []
+
+    if section:
+        where.append("section = %s")
+        params.append(section)
+
+    if categorie:
+        where.append("categorie = %s")
+        params.append(categorie)
+
+    condition = "WHERE " + " AND ".join(where) if where else ""
+
+    conn = psycopg.connect(DATABASE_URL)
+    cur = conn.cursor()
+
+    cur.execute(f"SELECT COUNT(*) FROM inscription {condition}", params)
+    total = cur.fetchone()[0]
+
+    cur.execute(f"SELECT SUM(finsc) FROM inscription {condition}", params)
+    montant = cur.fetchone()[0] or 0
+
+    cur.execute(f"""
+        SELECT section, COUNT(*)
+        FROM inscription
+        {condition}
+        GROUP BY section
+    """, params)
+    sections = cur.fetchall()
+
+    cur.execute(f"""
+        SELECT categorie, COUNT(*)
+        FROM inscription
+        {condition}
+        GROUP BY categorie
+    """, params)
+    categories = cur.fetchall()
+
+    conn.close()
+
+    return {
+        "total": total,
+        "montant": montant,
+        "sections": sections,
+        "categories": categories
+    }
+    
+#=====inscr FIN++++ #  
 
 @app.route("/caisse-list")
 def caisse_list():
@@ -3467,7 +3663,7 @@ function fermerAide() {
     <a href="/admin1/gestion_eleve">📊 Gestion Élèves</a>
     <a href="#">📘 Journal Paiements</a>
     <a href="#">📄 Rapports</a>
-    <a href="#">📅 Statistiques</a>
+    <a href="/dashboard-inscription">📅 Statistiques</a>
     <a href="/admin/login">🧾 Comptabilité</a>
     <a href="#">🖨️ Documents</a>
     <a href="#">⚙️ Paramètres</a>
@@ -5710,6 +5906,70 @@ setInterval(updateDateTime, 1000);
 """
 
 
+@app.route("/admin/paiement", methods=["GET", "POST"])
+#@require_role("admin", "compta")
+def paiement():
+
+    message = ""
+
+    if request.method == "POST":
+
+        matricule = request.form.get("matricule")
+        mois = request.form.get("mois")
+        montant = request.form.get("montant")
+
+        # 🔒 Validation
+        if not matricule or not mois or not montant:
+            message = "❌ Données invalides"
+            return render_template("paiement.html", message=message)
+
+        mois = canonical_month(mois)
+
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+
+            # 🔎 Vérifier élève
+            cur.execute("""
+                SELECT id, nom FROM eleves
+                WHERE LOWER(matricule) = LOWER(%s)
+            """, (matricule,))
+            eleve = cur.fetchone()
+
+            if not eleve:
+                message = "❌ Élève introuvable"
+                return render_template("paiement.html", message=message)
+
+            eleve_id = eleve[0]
+
+            # 🚫 Anti double paiement
+            cur.execute("""
+                SELECT 1 FROM paiements
+                WHERE eleve_id=%s AND mois=%s
+            """, (eleve_id, mois))
+
+            if cur.fetchone():
+                message = "⚠️ Ce mois est déjà payé"
+                return render_template("paiement.html", message=message)
+
+            # 💾 INSERTION
+            cur.execute("""
+                INSERT INTO paiements (eleve_id, mois, fip)
+                VALUES (%s, %s, %s)
+            """, (eleve_id, mois, montant))
+
+            conn.commit()
+
+            message = f"✅ Paiement enregistré pour {eleve[1]}"
+
+        except Exception as e:
+            print("❌ ERREUR PAIEMENT :", e)
+            message = "❌ Erreur serveur"
+
+        finally:
+            conn.close()
+
+    return render_template("paiement.html", message=message)
 
 
 

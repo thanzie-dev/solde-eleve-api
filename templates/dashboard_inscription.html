@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard Inscriptions</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #f4f6f9;
+    margin: 0;
+    padding: 0;
+}
+
+/* ===== HEADER ===== */
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+}
+
+/* Logo */
+.logo img {
+    width: 95px;
+}
+
+/* Bande centrale */
+.banner {
+    flex: 1;
+    margin: 0 20px;
+    background: linear-gradient(90deg,#d16ba5,#86a8e7,#5ffbf1);
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.banner span {
+    display: inline-block;
+    padding-left: 100%;
+    animation: scrollText 15s linear infinite;
+    font-weight: bold;
+}
+
+/* Animation texte */
+@keyframes scrollText {
+    from { transform: translateX(0); }
+    to { transform: translateX(-100%); }
+}
+
+/* Horloge */
+.clock {
+    background: #eee;
+    padding: 10px 15px;
+    border-radius: 5px;
+    font-weight: bold;
+}
+
+/* ===== CONTENU ===== */
+.container {
+    max-width: 1200px;
+    margin: auto;
+    padding: 20px;
+}
+
+h2 {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+/* KPI */
+.kpi {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px,1fr));
+    gap: 15px;
+    margin-bottom: 30px;
+}
+
+.card {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    text-align: center;
+}
+
+.card p {
+    font-size: 22px;
+    font-weight: bold;
+}
+
+/* Charts */
+.charts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.chart-box {
+    background: white;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+canvas {
+    width: 100% !important;
+    height: 300px !important;
+}
+
+/* ===== FOOTER ===== */
+.footer {
+    background: #0b2c66;
+    color: white;
+    text-align: center;
+    padding: 15px;
+    margin-top: 30px;
+    font-size: 14px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .charts {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+</head>
+
+<body>
+
+<!-- ===== HEADER ===== -->
+<div class="header">
+
+    <div class="logo">
+        <img src="/static/images/logo_csnst.png">
+    </div>
+
+    <div class="banner">
+        <span>DASHBOARD INSCRIPTIONS NSANGA LE THANZIE 2025 - 2026 ; MAT - PRM - SEC</span>
+    </div>
+
+    <div style="display:flex; flex-direction:column; align-items:flex-end;">
+
+    <div class="clock" id="clock"></div>
+
+    <button onclick="window.location.href='/admin1/panel'" style="
+        margin-top:5px;
+        background:red;
+        color:white;
+        border:none;
+        padding:6px 12px;
+        border-radius:5px;
+        cursor:pointer;
+    ">
+        Admin
+    </button>
+
+    </div>
+    </a>
+</div>
+
+</div>
+
+<!-- ===== Filtre ===== -->
+
+<div style="margin-bottom:20px; text-align:center;">
+
+    <select id="filtreSection">
+        <option value="">Toutes sections</option>
+        <option value="MAT">Maternelle</option>
+        <option value="PRM">Primaire</option>
+        <option value="SEC">Secondaire</option>
+    </select>
+
+    <select id="filtreCategorie">
+        <option value="">Toutes catégories</option>
+        <option value="PY">Payant</option>
+        <option value="ABD">Abandon</option>
+        <option value="NPY">Non Payant</option>
+    </select>
+
+    <button onclick="chargerFiltre()">Filtrer</button>
+
+</div>
+
+<!-- ===== CONTENU ===== -->
+
+<div class="container">
+
+<h2>📊 Dashboard Inscriptions</h2>
+
+<div class="kpi">
+    <div class="card"><h3>Total</h3><p id="total"></p></div>
+    <div class="card"><h3>Payants</h3><p id="py"></p></div>
+    <div class="card"><h3>Abandons</h3><p id="abd"></p></div>
+    <div class="card"><h3>Non Payants</h3><p id="npy"></p></div>
+    <div class="card"><h3>Montant</h3><p id="montant"></p></div>
+    <div class="card" style="background:#2ecc71;color:white;">
+        <h3>Taux Payants</h3>
+        <p id="taux_py"></p>
+    </div>
+</div>
+
+<div class="charts">
+    <div class="chart-box">
+        <canvas id="chartSection"></canvas>
+    </div>
+
+    <div class="chart-box">
+        <canvas id="chartCategorie"></canvas>
+    </div>
+</div>
+
+</div>
+
+<!-- ===== FOOTER ===== -->
+<div class="footer">
+    Complexe Scolaire Nsanga le Thanzie<br>
+    165 Av Kasangulu /de l’église<br>
+    Q/Gambela2, C/de Lubumbashi
+</div>
+
+<script src="/static/js/dashboard_inscription.js"></script>
+
+<!-- ===== HORLOGE TEMPS RÉEL ===== -->
+<script>
+function updateClock() {
+    const now = new Date();
+    const date = now.toLocaleDateString();
+    const time = now.toLocaleTimeString();
+    document.getElementById("clock").innerText = date + " " + time;
+}
+setInterval(updateClock, 1000);
+updateClock();
+</script>
+
+</body>
+</html>
