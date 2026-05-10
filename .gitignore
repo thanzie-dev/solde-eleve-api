@@ -2,10 +2,9 @@
 env/
 venv/
 ENV/
-*.env
+.env
 
-# -
--- Fichiers Python ---
+# --- Fichiers Python ---
 __pycache__/
 *.pyc
 *.pyo
@@ -20,6 +19,10 @@ rapport_import.txt
 # --- Rapports ---
 rapport_import/
 erreurs_import/
+erreurs_import.xlsx
+erreurs_import_depenses.csv
+rapport_import.pdf
+
 
 
 # --- Archives et paquets ---
@@ -30,8 +33,19 @@ erreurs_import/
 # --- Fichiers temporaires ---
 *.tmp
 *.temp
+temp/
+
+
+# --- Fichiers Excel Metier ---
+
+THZBD2526GA.xlsx
+INSC_THZ2526.xlsx
+DEPENSES_2026.xlsx
+
+
 
 # --- Images inutiles (si API seulement) ---
+
 logo_cs_nst.png
 
 # --- Base de données (optionnel) ---
@@ -39,9 +53,11 @@ logo_cs_nst.png
 # (Décommente si tu veux ignorer la DB)
 
 # --- Fichiers YAML incorrects ---
+
 render.yaml.txt
 
 # --- Système ---
+
 .DS_Store
 Thumbs.db
 thz.db
@@ -55,12 +71,16 @@ temp/
 ~$*.xls
 *.xlsx
 
-# fichiers temporaires / tests
+# --- fichiers et export générés --- 
 *.pdf
 *.json
+
+#--- tests / inspection ---
+
 inspect_*.py
 psql
 
 erreurs_import_depenses.csv
 
 .vscode/
+

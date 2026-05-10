@@ -25,11 +25,13 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
-import import_excel_pg as import_excel
-from dotenv import load_dotenv
-load_dotenv()
-from import_inscription_pg import importer_inscriptions
 
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+from mail_service import envoyer_mail
+import import_excel_pg as import_excel
+from import_inscription_pg import importer_inscriptions
+import json
 
 
 
@@ -185,7 +187,7 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 
-app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SECURE"] = False
 
 
 
@@ -5971,9 +5973,59 @@ def paiement():
 
     return render_template("paiement.html", message=message)
 
+# ===============================================================
+# 🔵 API ENVOI MAIL TEST
+# ===============================================================
 
 
+@app.route("/send_mail", methods=["POST"])
+def send_mail():
 
+    try:
+
+        raw_data = request.get_data(as_text=True)
+
+        data = json.loads(raw_data)
+
+        destinataire = data.get("to")
+        copies = data.get("cc", "")
+        sujet = data.get("subject")
+        message = data.get("message")
+
+        if not destinataire:
+
+            return jsonify({
+                "success": False,
+                "error": "Destinataire manquant"
+            }), 400
+
+        ok, resultat = envoyer_mail(
+            destinataire,
+            copies,
+            sujet,
+            message
+        )
+
+        if ok:
+
+            return jsonify({
+                "success": True,
+                "message": resultat
+            })
+
+        return jsonify({
+            "success": False,
+            "error": resultat
+        }), 500
+
+    except Exception as e:
+
+        print("❌ ERREUR SEND_MAIL :", e)
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 # ===============================================================
 # 🔵 11. Lancement local
