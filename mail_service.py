@@ -11,17 +11,37 @@ def envoyer_mail(destinataire, copie, sujet, message):
         email_sender = os.getenv("MAIL_USERNAME")
         email_password = os.getenv("MAIL_PASSWORD")
 
+        # =========================
+        # VALIDATION CONFIG
+        # =========================
+        if not email_sender or not email_password:
+
+            return False, "Configuration mail manquante"
+
         msg = EmailMessage()
 
         msg["Subject"] = sujet
         msg["From"] = email_sender
-        msg["To"] = destinataire
 
         # =========================
-        # GESTION CC
+        # GESTION DESTINATAIRES TO
+        # =========================
+        liste_to = []
+
+        if destinataire:
+
+            liste_to = [
+                x.strip()
+                for x in destinataire.replace(";", ",").split(",")
+                if x.strip() != ""
+            ]
+
+            msg["To"] = ", ".join(liste_to)
+
+        # =========================
+        # GESTION DESTINATAIRES CC
         # =========================
         liste_cc = []
-
 
         if copie:
 
@@ -33,12 +53,19 @@ def envoyer_mail(destinataire, copie, sujet, message):
 
             msg["Cc"] = ", ".join(liste_cc)
 
-        msg.set_content(message)
+        # =========================
+        # VERIFICATION DESTINATAIRES
+        # =========================
+        tous_destinataires = liste_to + liste_cc
+
+        if len(tous_destinataires) == 0:
+
+            return False, "Aucun destinataire valide"
 
         # =========================
-        # LISTE DESTINATAIRES
+        # CONTENU MESSAGE
         # =========================
-        tous_destinataires = [destinataire] + liste_cc
+        msg.set_content(message)
 
         # =========================
         # SMTP GMAIL
@@ -54,6 +81,8 @@ def envoyer_mail(destinataire, copie, sujet, message):
                 from_addr=email_sender,
                 to_addrs=tous_destinataires
             )
+
+        print("✅ MAIL ENVOYÉ :", tous_destinataires)
 
         return True, "Mail envoyé"
 
