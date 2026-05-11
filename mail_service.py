@@ -22,6 +22,7 @@ def envoyer_mail(destinataire, copie, sujet, message):
         # =========================
         liste_cc = []
 
+
         if copie:
 
             liste_cc = [
