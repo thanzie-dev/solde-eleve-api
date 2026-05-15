@@ -4,28 +4,38 @@ import smtplib
 from email.message import EmailMessage
 
 
-def envoyer_mail(destinataire, copie, sujet, message):
+def envoyer_mail(destinataire,
+                 copie,
+                 sujet,
+                 message,
+                 fichier=None):
 
     try:
 
         email_sender = os.getenv("MAIL_USERNAME")
         email_password = os.getenv("MAIL_PASSWORD")
 
-        # =========================
-        # VALIDATION CONFIG
-        # =========================
+        # =====================================================
+        # VALIDATION CONFIGURATION
+        # =====================================================
+
         if not email_sender or not email_password:
 
             return False, "Configuration mail manquante"
+
+        # =====================================================
+        # CREATION MESSAGE
+        # =====================================================
 
         msg = EmailMessage()
 
         msg["Subject"] = sujet
         msg["From"] = email_sender
 
-        # =========================
-        # GESTION DESTINATAIRES TO
-        # =========================
+        # =====================================================
+        # DESTINATAIRES PRINCIPAUX (TO)
+        # =====================================================
+
         liste_to = []
 
         if destinataire:
@@ -38,9 +48,10 @@ def envoyer_mail(destinataire, copie, sujet, message):
 
             msg["To"] = ", ".join(liste_to)
 
-        # =========================
-        # GESTION DESTINATAIRES CC
-        # =========================
+        # =====================================================
+        # DESTINATAIRES COPIE (CC)
+        # =====================================================
+
         liste_cc = []
 
         if copie:
@@ -53,28 +64,71 @@ def envoyer_mail(destinataire, copie, sujet, message):
 
             msg["Cc"] = ", ".join(liste_cc)
 
-        # =========================
+        # =====================================================
         # VERIFICATION DESTINATAIRES
-        # =========================
+        # =====================================================
+
         tous_destinataires = liste_to + liste_cc
 
         if len(tous_destinataires) == 0:
 
             return False, "Aucun destinataire valide"
 
-        # =========================
+        # =====================================================
         # CONTENU MESSAGE
-        # =========================
+        # =====================================================
+
         msg.set_content(message)
 
-        # =========================
-        # SMTP GMAIL
-        # =========================
-        with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+        # =====================================================
+        # AJOUT PDF SI FOURNI
+        # =====================================================
 
+        if fichier:
+
+            fichier_data = fichier.read()
+
+            msg.add_attachment(
+                fichier_data,
+                maintype="application",
+                subtype="pdf",
+                filename=fichier.filename
+            )
+
+            print("📎 PDF ajouté :", fichier.filename)
+
+        else:
+
+            print("⚠ Aucun PDF joint")
+
+        # =====================================================
+        # CONNEXION SMTP GMAIL
+        # =====================================================
+
+        with smtplib.SMTP(
+                "smtp.gmail.com",
+                587,
+                timeout=30
+        ) as smtp:
+
+            # Initialisation SMTP
+            smtp.ehlo()
+
+            # Activation TLS
             smtp.starttls()
 
-            smtp.login(email_sender, email_password)
+            # Réinitialisation EHLO après TLS
+            smtp.ehlo()
+
+            # Authentification Gmail
+            smtp.login(
+                email_sender,
+                email_password
+            )
+
+            # =================================================
+            # ENVOI EMAIL
+            # =================================================
 
             smtp.send_message(
                 msg,
@@ -84,7 +138,7 @@ def envoyer_mail(destinataire, copie, sujet, message):
 
         print("✅ MAIL ENVOYÉ :", tous_destinataires)
 
-        return True, "Mail envoyé"
+        return True, "Mail envoyé avec succès"
 
     except Exception as e:
 

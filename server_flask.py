@@ -5974,23 +5974,32 @@ def paiement():
     return render_template("paiement.html", message=message)
 
 # ===============================================================
-# 🔵 API ENVOI MAIL TEST
+# 🔵 API ENVOI MAIL AVEC PDF
 # ===============================================================
 
-
-@app.route("/send_mail", methods=["POST"])
-def send_mail():
+@app.route("/sendmail", methods=["POST"])
+def sendmail():
 
     try:
 
-        raw_data = request.get_data(as_text=True)
+        # ======================================================
+        # RECUPERATION FORM DATA
+        # ======================================================
 
-        data = json.loads(raw_data)
+        destinataire = request.form.get("to")
+        copies = request.form.get("cc", "")
+        sujet = request.form.get("subject")
+        message = request.form.get("message")
 
-        destinataire = data.get("to")
-        copies = data.get("cc", "")
-        sujet = data.get("subject")
-        message = data.get("message")
+        # ======================================================
+        # RECUPERATION FICHIER PDF
+        # ======================================================
+
+        fichier = request.files.get("file")
+
+        # ======================================================
+        # VALIDATION DESTINATAIRE
+        # ======================================================
 
         if not destinataire:
 
@@ -5999,12 +6008,21 @@ def send_mail():
                 "error": "Destinataire manquant"
             }), 400
 
+        # ======================================================
+        # ENVOI EMAIL
+        # ======================================================
+
         ok, resultat = envoyer_mail(
             destinataire,
             copies,
             sujet,
-            message
+            message,
+            fichier
         )
+
+        # ======================================================
+        # RESULTAT
+        # ======================================================
 
         if ok:
 
@@ -6020,12 +6038,15 @@ def send_mail():
 
     except Exception as e:
 
-        print("❌ ERREUR SEND_MAIL :", e)
+        print("❌ ERREUR SENDMAIL :", e)
 
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
+
+
+
 
 # ===============================================================
 # 🔵 11. Lancement local
