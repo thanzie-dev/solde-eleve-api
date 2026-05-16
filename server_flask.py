@@ -5972,6 +5972,65 @@ def paiement():
             conn.close()
 
     return render_template("paiement.html", message=message)
+    
+    
+
+
+
+# ===============================================================
+# 🔵 API NOTIFICATION SIMPLE
+# ===============================================================
+
+@app.route("/send_notification", methods=["POST"])
+def send_notification():
+
+    try:
+
+        data = request.get_json()
+
+        destinataire = data.get("to")
+        copies = data.get("cc", "")
+        sujet = data.get("subject")
+        message = data.get("message")
+
+        if not destinataire:
+
+            return jsonify({
+                "success": False,
+                "error": "Destinataire manquant"
+            }), 400
+
+        ok, resultat = envoyer_mail(
+            destinataire,
+            copies,
+            sujet,
+            message
+        )
+
+        if ok:
+
+            return jsonify({
+                "success": True,
+                "message": resultat
+            })
+
+        return jsonify({
+            "success": False,
+            "error": resultat
+        }), 500
+
+    except Exception as e:
+
+        print("❌ ERREUR NOTIFICATION :", e)
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500    
+    
+    
+    
+   
 
 # ===============================================================
 # 🔵 API ENVOI MAIL AVEC PDF
