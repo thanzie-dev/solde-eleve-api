@@ -175,7 +175,7 @@ ADMIN_PASSWORDS = [
 # =========================
 COMPTA_PASSWORDS = [
     p.strip()
-    for p in os.environ.get("COMPTA_PASSWORD", "").split(",")
+    for p in os.environ.get("COMPTA_PASSWORDS", "").split(",")
     if p.strip()
 ]
 
@@ -898,7 +898,7 @@ def acces_resume_journalier():
     password = data.get("password", "")
 
     # 🔐 vérification avec la variable déjà existante
-    if password == COMPTA_PASSWORD:
+    if password == COMPTA_PASSWORDS:
         session["auth_compta"] = True
         session.permanent = True   # 🔥 IMPORTANT
         return jsonify({"ok": True})
