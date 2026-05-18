@@ -898,7 +898,7 @@ def acces_resume_journalier():
     password = data.get("password", "")
 
     # 🔐 vérification avec la variable déjà existante
-    if password == COMPTA_PASSWORDS:
+    if password in COMPTA_PASSWORDS:
         session["auth_compta"] = True
         session.permanent = True   # 🔥 IMPORTANT
         return jsonify({"ok": True})
