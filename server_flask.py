@@ -179,7 +179,6 @@ COMPTA_PASSWORDS = [
     if p.strip()
     
 ]
-print("COMPTA_PASSWORDS =", COMPTA_PASSWORDS)
 
 # =========================
 # BASE DE DONNEES
