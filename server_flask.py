@@ -161,18 +161,36 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "BJ2KEL24")
 # 🔐 VARIABLES D’ENVIRONNEMENT — À DÉFINIR AVANT LES ROUTES
 # ===============================================================
 
+# =========================
+# MOTS DE PASSE ADMIN
+# =========================
 ADMIN_PASSWORDS = [
     p.strip()
     for p in os.environ.get("ADMIN_PASSWORDS", "").split(",")
     if p.strip()
 ]
 
-COMPTA_PASSWORD = os.environ.get("COMPTA_PASSWORD")
+# =========================
+# MOTS DE PASSE COMPTABILITE
+# =========================
+COMPTA_PASSWORDS = [
+    p.strip()
+    for p in os.environ.get("COMPTA_PASSWORD", "").split(",")
+    if p.strip()
+]
 
+# =========================
+# BASE DE DONNEES
+# =========================
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "BJ2KEL24")
-
+# =========================
+# CLE SECRETE FLASK
+# =========================
+FLASK_SECRET_KEY = os.environ.get(
+    "FLASK_SECRET_KEY",
+    "BJ2KEL24"
+)
 
 
 
@@ -276,24 +294,40 @@ def login():
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
-
 def admin_login():
+
     error = None
 
     if request.method == "POST":
+
         pwd = request.form.get("password", "").strip()
 
+        # =========================
+        # ADMIN
+        # =========================
         if pwd in ADMIN_PASSWORDS:
+
             session["role"] = "admin"
+
             return redirect("/admin/dashboard")
 
-        if COMPTA_PASSWORD and pwd == COMPTA_PASSWORD:
+        # =========================
+        # COMPTABILITE
+        # =========================
+        if pwd in COMPTA_PASSWORDS:
+
             session["role"] = "compta"
+
             return redirect("/admin/dashboard/finance")
 
         error = "Mot de passe incorrect."
 
-    return render_template_string(LOGIN_FORM_HTML, error=error)
+    return render_template_string(
+        LOGIN_FORM_HTML,
+        error=error
+    )
+
+
 
 
 #================
