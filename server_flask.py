@@ -175,7 +175,7 @@ ADMIN_PASSWORDS = [
 # =========================
 COMPTA_PASSWORDS = [
     p.strip()
-    for p in os.environ.get("COMPTA_PASSWORDS", "").split(",")
+    for p in os.environ.get("COMPTA_PASSWORD", "").split(",")
     if p.strip()
     
 ]
