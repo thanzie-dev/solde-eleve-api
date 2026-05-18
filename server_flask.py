@@ -177,7 +177,9 @@ COMPTA_PASSWORDS = [
     p.strip()
     for p in os.environ.get("COMPTA_PASSWORDS", "").split(",")
     if p.strip()
+    
 ]
+ print("COMPTA_PASSWORDS =", COMPTA_PASSWORDS)
 
 # =========================
 # BASE DE DONNEES
