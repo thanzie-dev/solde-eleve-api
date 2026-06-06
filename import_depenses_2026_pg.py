@@ -257,19 +257,17 @@ try:
                 """, obs_rows)
 
             conn.commit()
-
-with open("import_log.txt", "a", encoding="utf-8") as log:
-    log.write(
-        f"{datetime.now()} | "
-        f"Caisse={len(caisse_rows)} | "
-        f"Depenses={len(depense_rows)} | "
-        f"Observations={len(obs_rows)}\n"
-    )
             
+# Journal d'import
+
+
 
 except Exception as e:
     print(f"\nERREUR IMPORT : {e}")
     raise
+   
+    
+    
 
 
 # =====================================================
