@@ -23,16 +23,21 @@ COL_BLOC1    = 6   # F
 COL_BLOC2    = 7   # G
 COL_BUS1     = 8   # H
 COL_BUS2     = 9   # I
-COL_TOT_ENTR = 10  # J (calculée Excel, NON importée)
+#COL_TOT_ENTR = 10  # J (calculée Excel, NON importée)
 COL_LB_DP    = 11  # K
 COL_MT_DP    = 12  # L
 COL_BANQUE   = 13  # M
-COL_SOLDE    = 14  # N (calculée Excel, NON importée)
+#COL_SOLDE    = 14  # N (calculée Excel, NON importée)
 COL_LB_OBS   = 15  # O
 COL_TT_OBS   = 16  # P
 COL_ANNEE    = 17  # Q
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise ValueError(
+        "DATABASE_URL non définie. Vérifiez vos variables d'environnement."
+    )
 
 # =====================================================
 # OUTILS DE NETTOYAGE / VALIDATION
@@ -83,12 +88,17 @@ depense_rows = []
 obs_rows = []
 errors = []
 
+if not os.path.exists(EXCEL_FILE):
+    raise FileNotFoundError(
+        f"Fichier introuvable : {EXCEL_FILE}"
+    )
+
 wb = load_workbook(EXCEL_FILE, data_only=True)
 ws = wb[SHEET_NAME]
 
+
 empty_date_count = 0
 caisse_dates_importees = set()
-
 for row in range(START_ROW, ws.max_row + 1):
 
     date_cell = ws.cell(row=row, column=COL_DATE).value
@@ -103,9 +113,15 @@ for row in range(START_ROW, ws.max_row + 1):
         empty_date_count = 0
 
     annee = ws.cell(row=row, column=COL_ANNEE).value
+
     if not annee:
         errors.append((row, "ANNEE SCOLAIRE", None, "Année scolaire manquante"))
         continue
+
+    ref_dp = str(ws.cell(row=row, column=COL_REF_DP).value or "").strip()
+    annee = str(annee).strip()
+
+   
 
     # =================================================
     # CAISSE JOURNALIÈRE (UNE SEULE FOIS PAR JOUR)
@@ -149,15 +165,15 @@ for row in range(START_ROW, ws.max_row + 1):
 
     if mt_dep is not None and banque is not None:
         if (mt_dep + banque) > 0:
+            
             depense_rows.append((
-                ws.cell(row=row, column=COL_REF_DP).value,
+                ref_dp,
                 date_op,
                 ws.cell(row=row, column=COL_LB_DP).value,
                 mt_dep,
                 banque,
                 annee
             ))
-
     # =================================================
     # OBSERVATIONS
     # =================================================
@@ -187,42 +203,73 @@ if errors:
 # INSERT EN BASE (ROBUSTE)
 # =====================================================
 
-with psycopg.connect(DATABASE_URL) as conn:
-    with conn.cursor() as cur:
+try:
 
-        if caisse_rows:
-            cur.executemany("""
-                INSERT INTO caisse_journaliere
-                (date_operation, report, bloc1, bloc2, bus1, bus2, annee_scolaire)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (date_operation, annee_scolaire)
-                DO UPDATE SET
-                    report = EXCLUDED.report,
-                    bloc1  = EXCLUDED.bloc1,
-                    bloc2  = EXCLUDED.bloc2,
-                    bus1   = EXCLUDED.bus1,
-                    bus2   = EXCLUDED.bus2
-            """, caisse_rows)
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
 
-        if depense_rows:
-           cur.executemany("""
-                INSERT INTO depense
-                (ref_dp, date_depense, libelle, montant, banque, annee_scolaire)
-                VALUES (%s,%s,%s,%s,%s,%s)
-                ON CONFLICT DO NOTHING
-            """, depense_rows)
+            # ==========================================
+            # CAISSE JOURNALIERE
+            # ==========================================
+            if caisse_rows:
+                cur.executemany("""
+                    INSERT INTO caisse_journaliere
+                    (date_operation, report, bloc1, bloc2, bus1, bus2, annee_scolaire)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s)
 
+                    ON CONFLICT (date_operation, annee_scolaire)
+                    DO UPDATE SET
+                        report = EXCLUDED.report,
+                        bloc1  = EXCLUDED.bloc1,
+                        bloc2  = EXCLUDED.bloc2,
+                        bus1   = EXCLUDED.bus1,
+                        bus2   = EXCLUDED.bus2
+                """, caisse_rows)
 
-        if obs_rows:
-            cur.executemany("""
-                INSERT INTO observation
-                (date_operation, libelle, montant, annee_scolaire)
-                VALUES (%s,%s,%s,%s)
-                ON CONFLICT (date_operation, libelle, annee_scolaire)
-                DO NOTHING
-            """, obs_rows)
+            # ==========================================
+            # DEPENSES
+            # ==========================================
+            if depense_rows:
+                cur.executemany("""
+                    INSERT INTO depense
+                    (ref_dp, date_depense, libelle, montant, banque, annee_scolaire)
+                    VALUES (%s,%s,%s,%s,%s,%s)
 
-        conn.commit()
+                    ON CONFLICT (ref_dp, date_depense, annee_scolaire)
+                    DO UPDATE SET
+                        libelle = EXCLUDED.libelle,
+                        montant = EXCLUDED.montant,
+                        banque  = EXCLUDED.banque
+                """, depense_rows)
+
+            # ==========================================
+            # OBSERVATIONS
+            # ==========================================
+            if obs_rows:
+                cur.executemany("""
+                    INSERT INTO observation
+                    (date_operation, libelle, montant, annee_scolaire)
+                    VALUES (%s,%s,%s,%s)
+
+                    ON CONFLICT (date_operation, libelle, annee_scolaire)
+                    DO UPDATE SET
+                        montant = EXCLUDED.montant
+                """, obs_rows)
+
+            conn.commit()
+
+with open("import_log.txt", "a", encoding="utf-8") as log:
+    log.write(
+        f"{datetime.now()} | "
+        f"Caisse={len(caisse_rows)} | "
+        f"Depenses={len(depense_rows)} | "
+        f"Observations={len(obs_rows)}\n"
+    )
+            
+
+except Exception as e:
+    print(f"\nERREUR IMPORT : {e}")
+    raise
 
 
 # =====================================================
